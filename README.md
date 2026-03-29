@@ -57,6 +57,7 @@ discovery-agents/
 │   ├── scienceagent/
 │   │   ├── __init__.py
 │   │   ├── agent.py                      # DiscoveryAgent main loop
+│   │   ├── critic.py                     # Supervisor critic agent
 │   │   ├── executor.py                   # Simulation executors
 │   │   ├── evaluator.py                  # Law evaluation and scoring
 │   │   ├── llm_client.py                 # Multi-provider LLM client
@@ -64,8 +65,8 @@ discovery-agents/
 │   └── tests/
 │       └── test_executor.py
 │
-├── CLAUDE.md
 ├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
@@ -123,6 +124,22 @@ python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-202
 ```
 
 The agent will iteratively design experiments, observe results, and propose a governing law. Results are saved as JSON logs and trajectory plots.
+
+### Supervisor Critic
+
+Enable an optional supervisor agent that reviews each experiment round (from round 2 onward) for rule compliance and information gain:
+
+```bash
+python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-20250514 --use-critic
+```
+
+The critic defaults to `claude-haiku-4-5-20251001` for fast, low-cost feedback. Override with `--critic-model`:
+
+```bash
+python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-20250514 --use-critic --critic-model claude-sonnet-4-20250514
+```
+
+The critic checks that the science agent follows its experimental protocol and that each experiment provides new information not seen in previous rounds. Feedback is injected into the conversation so the science agent can course-correct.
 
 ## Supported LLM Providers
 
