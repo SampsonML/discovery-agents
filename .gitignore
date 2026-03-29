@@ -31,3 +31,6 @@ Thumbs.db
 
 # Data / results
 results/
+
+# Claude Code
+CLAUDE.md
