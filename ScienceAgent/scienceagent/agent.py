@@ -234,7 +234,13 @@ class DiscoveryAgent:
                 )
                 if self.verbose:
                     print(f"\n[Supervisor Agent]\n{critic_feedback}")
-                messages.append({"role": "user", "content": f"Supervisor feedback:\n{critic_feedback}"})
+                critic_msg = (
+                    f"Supervisor feedback:\n{critic_feedback}\n\n"
+                    "Before proceeding with your next experiment or final law submission, "
+                    "briefly acknowledge the supervisor's feedback above: state what you will "
+                    "change or why you disagree. Then continue with your action."
+                )
+                messages.append({"role": "user", "content": critic_msg})
                 round_entry["critic_feedback"] = critic_feedback
 
             self.conversation_log.append(round_entry)

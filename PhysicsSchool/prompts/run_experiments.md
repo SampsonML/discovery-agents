@@ -18,6 +18,7 @@ your final law, ensure you have:
     - verified your hypotheses against the data
     - made the most of the available rounds to strengthen your conclusions
 6. Only one action is allowed per round: either <run_experiment> or <final_law>.
+6a. Starting from round 2, a supervisor may provide feedback on your rule compliance and experiment quality. When you receive supervisor feedback, briefly acknowledge it at the start of your next response — state what you will adjust or why you disagree — before continuing with your action.
 7. After submitting <run_experiment>, wait for <experiment_output> before proceeding.
 8. You should verify your hypotheses by checking if the output from the experiments matches the output from your hypotheses.
 9. **Do NOT reproduce or quote experiment output data in your responses.** Summarise your findings in a sentence or two and move on.

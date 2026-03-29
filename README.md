@@ -75,12 +75,8 @@ discovery-agents/
 | World | Temporal Order | Operator | What the Agent Must Discover |
 |-------|---------------|----------|------------------------------|
 | **Gravity** | $n=0$ (constraint) | Laplacian | Classical inverse-distance force law |
-| **Yukawa** | $n=0$ (constraint) | Screening | Exponentially suppressed force |
 | **Fractional** | $n=0$ (constraint) | Fractional Laplacian | Anomalous power-law force |
-| **Diffusion** | $n=1$ (diffusion) | Laplacian | Time-dependent diffusive field dynamics |
-| **Wave** | $n=2$ (wave) | Laplacian | Wave propagation and oscillatory forces |
 | **Circle** | $n=0$ (constraint) | Fractional Laplacian | Force law from ring geometry (11 particles) |
-| **Species** | $n=0$ (constraint) | Laplacian | Hidden particle types with different couplings |
 
 ## Getting Started
 
@@ -120,7 +116,7 @@ export ANTHROPIC_API_KEY="your-key-here"
 Run the agent on a world:
 
 ```bash
-python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-20250514
+python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-5
 ```
 
 The agent will iteratively design experiments, observe results, and propose a governing law. Results are saved as JSON logs and trajectory plots.
@@ -130,7 +126,7 @@ The agent will iteratively design experiments, observe results, and propose a go
 Enable an optional supervisor agent that reviews each experiment round (from round 2 onward) for rule compliance and information gain:
 
 ```bash
-python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-20250514 --use-critic
+python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-5 --use-critic
 ```
 
 The critic defaults to `claude-haiku-4-5-20251001` for fast, low-cost feedback. Override with `--critic-model`:
