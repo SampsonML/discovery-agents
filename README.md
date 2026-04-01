@@ -150,7 +150,7 @@ python ScienceAgent/run_discovery.py \
   --plot circle_plot.png
 ```
 
-The agent discovers a force law with fractional exponent $\alpha = (1+\sqrt{5})/2$ (the golden ratio) and achieves a mean position error of ~0.064:
+The true fractional exponent is $\alpha = 1.5$. The agent discovers a force law with fractional exponent $\alpha = (1+\sqrt{5})/2$ (the golden ratio) and achieves a mean position error of ~0.064:
 
 ![Trajectory comparison](imgs/circle_plot.png)
 
