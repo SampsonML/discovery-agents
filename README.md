@@ -137,6 +137,27 @@ python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-202
 
 The critic checks that the science agent follows its experimental protocol and that each experiment provides new information not seen in previous rounds. Feedback is injected into the conversation so the science agent can course-correct.
 
+### Example: Fractional Gravity on a Ring
+
+Eleven particles are placed on a ring and interact via a fractional-Laplacian gravity field. The agent must discover the anomalous power-law force from noisy trajectories alone. Run with Opus 4.6 as the discovery agent and Sonnet 4.5 as the critic:
+
+```bash
+python ScienceAgent/run_discovery.py \
+  --world circle \
+  --model claude-opus-4-6 \
+  --use-critic \
+  --critic-model claude-sonnet-4-5 \
+  --plot circle_plot.png
+```
+
+The agent discovers a force law with fractional exponent $\alpha = (1+\sqrt{5})/2$ (the golden ratio) and achieves a mean position error of ~0.064:
+
+![Trajectory comparison](imgs/circle_plot.png)
+
+The discovered law submitted by the agent:
+
+![Discovered law](imgs/circle_law.png)
+
 ## Supported LLM Providers
 
 The agent supports multiple LLM backends via a unified client:
