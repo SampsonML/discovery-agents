@@ -2,7 +2,7 @@
 
 Training scientific discovery agents.
 
-LLM agents are placed in simulated physical worlds with unknown governing laws. Through iterative experimentation — observing particle trajectories, designing new experiments, and proposing equations — they must discover the hidden physics from scratch.
+LLM agents are placed in simulated physical worlds with unknown governing laws. Through iterative experimentation, observing particle trajectories, designing new experiments, and proposing equations, they must discover the hidden physics from scratch. Can they do this? Can we help them? All to be determined.
 
 The simulator generates diverse worlds by randomizing field equations, particle-field couplings, and symmetry structures, forcing agents to perform genuine scientific reasoning rather than pattern matching against known physics.
 
@@ -160,7 +160,7 @@ The discovered law submitted by the agent:
 
 ## Supported LLM Providers
 
-The agent supports multiple LLM backends via a unified client:
+The agent supports multiple LLM backends though Groq seems to be the most frictionless free option:
 
 - **Anthropic** (Claude)
 - **OpenAI** (GPT, o1)
