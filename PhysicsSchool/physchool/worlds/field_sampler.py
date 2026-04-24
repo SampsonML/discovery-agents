@@ -4,6 +4,8 @@ import jax.numpy as jnp
 from functools import partial
 from physchool.worlds.utils import cic_paint, cic_read
 
+# in case jax floats are overflowing, set all jax floats to float64
+jax.config.update("jax_enable_x64", True)
 
 class FieldSampler:
     """
@@ -19,6 +21,36 @@ class FieldSampler:
 
     Particles feel forces from the field gradient: F = -∇φ.
     """
+
+    @staticmethod
+    def recommend_grid_params(positions, domain_size, spatial_dimensions=2,
+                              min_cells_per_sep=3, max_grid_size=1024):
+        """Recommend grid_size and source_smoothing based on particle distribution.
+
+        Ensures the grid resolves inter-particle separations and the source
+        smoothing prevents aliasing without over-smoothing forces.
+
+        Returns (grid_size_tuple, source_smoothing).
+        """
+        from scipy.spatial import cKDTree
+        if len(positions) < 2:
+            gs = 64
+            return tuple([gs] * spatial_dimensions), domain_size / gs
+
+        tree = cKDTree(positions)
+        dists, _ = tree.query(positions, k=2)
+        min_sep = np.median(dists[:, 1])
+
+        needed_dx = min_sep / min_cells_per_sep
+        gs = int(np.ceil(domain_size / needed_dx))
+        gs = max(64, min(max_grid_size, gs))
+        # Round up to even number for FFT efficiency
+        gs += gs % 2
+
+        dx = domain_size / gs
+        smoothing = max(dx, min_sep * 0.3)
+
+        return tuple([gs] * spatial_dimensions), smoothing
 
     def __init__(
         self,
@@ -39,6 +71,7 @@ class FieldSampler:
         force_coupling=1.0,
         periodic_boundaries=True,
         source_smoothing=None,
+        force_softening=None,
     ):
         self.spatial_dimensions = spatial_dimensions
         self.temporal_order = temporal_order
@@ -68,6 +101,11 @@ class FieldSampler:
         # Prevents grid artifacts for singular Green's functions (e.g. fractional Laplacian).
         # Default: 1*dx. Increase to ~2-3*dx for operators with alpha < 1.
         self.source_smoothing = source_smoothing if source_smoothing is not None else self.dx
+
+        # Force softening length: regularizes the Green's function at short range.
+        # Adds epsilon^2 to k^2 in the denominator, equivalent to softening the
+        # potential at separations below ~epsilon.  Default: None (no softening).
+        self.force_softening = force_softening
 
         # Precompute k-vectors and operator kernel in Fourier space
         self._kvec = self._build_kvec()
@@ -106,6 +144,14 @@ class FieldSampler:
     def _build_operator_kernel(self):
         """Build L(k) once from the operator list. Reused every step."""
         k2 = self._k2
+        # Apply force softening: replace k² with k² + (2π/ε)² in the operator.
+        # This regularizes the Green's function at separations below ~ε.
+        if self.force_softening is not None and self.force_softening > 0:
+            eps_k2 = (2 * jnp.pi / self.force_softening) ** 2
+            k2_eff = k2 + eps_k2
+        else:
+            k2_eff = k2
+
         L_k = jnp.zeros_like(k2)
 
         for op in self.operators:
@@ -115,19 +161,19 @@ class FieldSampler:
 
             if op_type == "laplacian":
                 # ∇² → -k²
-                L_k = L_k + strength * (-k2)
+                L_k = L_k + strength * (-k2_eff)
             elif op_type == "fractional_laplacian":
                 # (-∇²)^α → -k^(2α)
                 alpha = params["alpha"]
-                L_k = L_k - strength * jnp.power(k2 + 1e-10, alpha)
+                L_k = L_k - strength * jnp.power(k2_eff + 1e-10, alpha)
             elif op_type == "helmholtz":
                 # ∇² - m² → -(k² + m²)
                 m2 = params["mass_squared"]
-                L_k = L_k + strength * (-k2 - m2)
+                L_k = L_k + strength * (-k2_eff - m2)
             elif op_type == "screening":
                 # ∇² - 1/λ² → -(k² + 1/λ²)
                 lam = params["screening_length"]
-                L_k = L_k + strength * (-k2 - 1.0 / lam**2)
+                L_k = L_k + strength * (-k2_eff - 1.0 / lam**2)
             elif op_type == "identity":
                 L_k = L_k + strength
 

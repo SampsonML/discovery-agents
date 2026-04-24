@@ -3,6 +3,9 @@ import numpy as np
 import jax
 import jax.lax as lax
 
+# in case jax floats are overflowing, set all jax floats to float64
+jax.config.update("jax_enable_x64", True)
+
 def cic_paint_2d(mesh, positions, weight, periodic=True):
     """ Paints positions onto a 2d mesh
     mesh: [nx, ny]
