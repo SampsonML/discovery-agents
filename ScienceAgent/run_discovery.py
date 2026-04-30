@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--model", default="claude-opus-4-6", help="LLM model string")
     parser.add_argument("--world", default="gravity", help="World name (see worlds.py)")
     parser.add_argument("--max-tokens", type=int, default=None,
-                        help="Max output tokens (default: 16384 for reasoning models, 4096 otherwise)")
+                        help="Max output tokens (default: 16384 for reasoning models, 8192 otherwise)")
     parser.add_argument("--quiet", action="store_true", help="Suppress per-round output")
     parser.add_argument("--show-experiment-output", action="store_true", help="Print simulator experiment output each round")
     parser.add_argument("--output", default=None, help="Write results JSON to this file")
@@ -51,6 +51,9 @@ def main():
                         help="RNG seed for the random-experiment sampler. "
                              "If --random-experiments is set but this is "
                              "omitted, falls back to --noise-seed (if any).")
+    parser.add_argument("--no-trajectory-csv", action="store_true",
+                        help="Disable per-experiment trajectory CSV logging "
+                             "(default: log to results/trajectories/<world>.csv).")
     args = parser.parse_args()
 
     from scienceagent.worlds import get_world
@@ -119,7 +122,21 @@ def main():
         if any(args.model.startswith(p) for p in _reasoning_prefixes):
             max_tokens = 16384
         else:
-            max_tokens = 4096
+            max_tokens = 8192
+
+    trajectory_logger = None
+    if not args.no_trajectory_csv:
+        from scienceagent.trajectory_logger import TrajectoryLogger, make_run_id
+        repo_root = Path(__file__).resolve().parent.parent
+        csv_path = repo_root / "results" / "trajectories" / f"{args.world}.csv"
+        run_id = make_run_id(args.model)
+        trajectory_logger = TrajectoryLogger(
+            world=args.world,
+            executor=executor,
+            csv_path=csv_path,
+            run_id=run_id,
+        )
+        print(f"Trajectory CSV: {csv_path}  (run_id={run_id})")
 
     agent_kwargs = dict(
         model=args.model,
@@ -134,6 +151,7 @@ def main():
         critic=critic,
         random_experiments=args.random_experiments,
         random_generator=random_generator,
+        trajectory_logger=trajectory_logger,
     )
     if args.max_rounds is not None:
         agent_kwargs["max_rounds"] = args.max_rounds
@@ -306,6 +324,15 @@ def _write_run_txt(path, world, model, timestamp, agent, law_source, evaluation,
             lines += ["[Final Law Submitted]", entry.get("final_law", ""), ""]
         elif action in ("warning", "no_tag"):
             lines += [f"[{action.upper()}]", entry.get("system_message", ""), ""]
+
+        # MSE-fit can co-occur with any action (typically alongside an
+        # experiment), so emit it in addition to the action-specific block.
+        if entry.get("mse_fit_input") is not None:
+            lines += ["[MSE Fit Input (law source)]",
+                      entry["mse_fit_input"], ""]
+        if entry.get("mse_fit_output") is not None:
+            lines += ["[MSE Fit Output]",
+                      json.dumps(entry["mse_fit_output"], indent=2), ""]
 
     lines += [sep, "DISCOVERED LAW", sep, law_source or "(none)", ""]
 

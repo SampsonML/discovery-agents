@@ -1,0 +1,58 @@
+# ------------------------------------------------------------
+# Example YAML benchmark config for scripts/yml_benchmark.py.
+#
+# Run:    python scripts/yml_benchmark.py configs/example.yml
+# Output: results/yml_bench/<name>/{run.sh, config.yml, 
+# summary.txt, <model>/<world>_seed<s>.{json,txt,stdout.log}}
+#
+# Required fields: models, critic, max_rounds, worlds, seeds.
+# Optional:        name, critic_model.
+# ------------------------------------------------------------
+
+
+# ---------------
+# name of the run
+name: test_run
+
+# -----------------------------------------
+# models to test on (will run sequentially)
+models:
+  #- claude-sonnet-4-6
+  - together/Qwen/Qwen3-235B-A22B-Instruct-2507-tput
+  #- together/deepseek-ai/DeepSeek-V3.1
+  #- together/deepseek-ai/DeepSeek-R1
+
+# model options are: 
+# claude-opus-4-7
+# claude-sonnet-4-6 
+# claude-haiku-4-5 
+# together/deepseek-ai/DeepSeek-V3.1 
+# together/deepseek-ai/DeepSeek-R1 
+
+
+# ---------------
+# use the critic?
+critic: off   # 'on' or 'off'
+# critic model
+critic_model: claude-sonnet-4-6  
+
+# --------------------------
+# max experimentation rounds
+max_rounds: 5
+
+# ---------------------------------
+# noise level of observed particles 
+noise_std: 0.05
+
+# --------------------
+# which physics worlds
+worlds:
+  - gravity
+  - yukawa
+  - fractional
+  - dark_matter 
+  - three_species
+
+# how many rng trials per run
+seeds: [0]
+

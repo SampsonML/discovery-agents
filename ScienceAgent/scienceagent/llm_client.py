@@ -14,6 +14,9 @@ Provider routing is done by model string prefix:
   "ollama/*"            → OpenAI-compatible, base_url=http://localhost:11434/v1
   "hf/*"                → HuggingFace Inference, base_url=https://api-inference.huggingface.co/v1
                           (HF_API_KEY)
+  "together/*"          → Together.ai, base_url=https://api.together.xyz/v1
+                          (TOGETHER_API_KEY). Pass-through model name, e.g.
+                          together/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8
   Any other string      → OpenAI-compatible; set base_url via OPENAI_BASE_URL env var
   Note: ollama seems to be very slow...
 """
@@ -205,9 +208,10 @@ def _azure_complete(model, messages, system, max_tokens, temperature):
 
 # open ai, ollama is not working well, often hangs
 _OPENAI_COMPAT_PROVIDERS = {
-    "ollama/":  ("http://localhost:11434/v1", None),          # no key needed
-    "hf/":      ("https://api-inference.huggingface.co/v1", "HF_API_KEY"),
-    "openai/":  (None, "OPENAI_API_KEY"),                     # default OpenAI base
+    "ollama/":   ("http://localhost:11434/v1", None),          # no key needed
+    "hf/":       ("https://api-inference.huggingface.co/v1", "HF_API_KEY"),
+    "together/": ("https://api.together.xyz/v1", "TOGETHER_API_KEY"),
+    "openai/":   (None, "OPENAI_API_KEY"),                     # default OpenAI base
 }
 
 

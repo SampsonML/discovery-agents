@@ -91,6 +91,20 @@ Once the system tells you it is your final round, submit a single Python functio
 6. Import any required libraries inside the function body
 7. Your function must include any hidden sources you discovered as hardcoded positions and strengths
 
+**Implementation note — time integration:**
+The evaluator calls your `discovered_law` once per (case × measurement time) during scoring. **Do NOT write Python `for` loops with small fixed `dt`** (e.g. `for _ in range(int(duration/dt))` with `dt=1e-3`) — they dominate runtime and can make a single law evaluation take seconds instead of milliseconds, especially with 25 particles plus any hidden sources you add. **Use `scipy.integrate.solve_ivp`** with adaptive RK45 instead; it picks step sizes automatically and reaches comparable accuracy with 10–100× fewer steps.
+
+Skeleton:
+```python
+from scipy.integrate import solve_ivp
+def rhs(t, y):
+    # unpack y → positions/velocities; compute accelerations from your force law (visible + hidden)
+    return dydt
+sol = solve_ivp(rhs, (0.0, duration), y0, method="RK45", rtol=1e-4, atol=1e-4)
+final_state = sol.y[:, -1]
+```
+Vectorise pairwise force computations with NumPy broadcasting (e.g. `r = pos[:, None, :] - pos[None, :, :]`) — never a tight Python double-loop over particles.
+
 **Submission format:**
 <final_law>
 def discovered_law(positions, velocities, duration):

@@ -11,8 +11,13 @@ from typing import Callable, Optional
 from scienceagent.executor import SimulationExecutor, SpeciesExecutor, ThreeSpeciesExecutor, DarkMatterExecutor
 
 
-MAX_FIT_PARAMETERS = 5
-FIT_MAXITER = 150
+MAX_FIT_PARAMETERS = 3
+FIT_MAXITER = 15
+FIT_TIME_BUDGET_S = 60.0  # wall-clock cap on a single scipy.optimize.minimize call
+
+
+class _FitTimeBudgetExceeded(Exception):
+    """Raised inside the optimizer objective when the wall-clock budget is hit."""
 
 
 # Default held-out test cases: (p1, p2, pos2, velocity2, measurement_times)
@@ -772,6 +777,98 @@ def _circle_loss(law: Callable, training: list) -> float:
     return total_sq / count
 
 
+def _three_species_loss(law: Callable, training: list) -> float:
+    """Mean-squared position error on three-species training trajectories.
+
+    The discovered law operates on all 35 particles (30 fixed background
+    sources of three hidden species + 5 neutral probes). Loss aggregates
+    squared distance across every particle, every measurement time, every
+    sample — matching ThreeSpeciesEvaluator's all-particles convention.
+
+    Each training sample provides the full 35-particle initial state in
+    `input["init_positions"]` and `input["init_velocities"]`; the
+    measurement times and observed positions come from `output`. The
+    helper `_one_three_species_sample` in mse_fitting.py builds these
+    samples from CSV t=0 + measurement rows.
+    """
+    total_sq = 0.0
+    count = 0
+    for sample in training:
+        case = sample["input"]
+        out = sample["output"]
+        init_positions = case.get("init_positions")
+        init_velocities = case.get("init_velocities")
+        times = out.get("measurement_times", case.get("measurement_times", []))
+        obs_positions = np.asarray(out.get("positions", []))
+        if init_positions is None or init_velocities is None:
+            continue
+        if obs_positions.ndim != 3 or len(times) == 0:
+            continue
+        for j, t in enumerate(times):
+            try:
+                pred = np.asarray(
+                    law(positions=init_positions,
+                        velocities=init_velocities,
+                        duration=float(t))
+                )
+            except Exception:
+                return float("inf")
+            if pred.shape != obs_positions[j].shape:
+                return float("inf")
+            diff = pred - obs_positions[j]
+            total_sq += float(np.sum(diff * diff))
+            count += diff.size // 2
+    if count == 0:
+        return float("inf")
+    return total_sq / count
+
+
+# Probe slice in the dark-matter agent-facing 25-particle output. Mirrors
+# DarkMatterEvaluator: scoring is restricted to the 5 probes whose initial
+# conditions the agent set, since the visible-particle initial velocities
+# are unknown to the agent and dark matter is hidden.
+_DARK_MATTER_PROBE_SLICE = slice(20, 25)
+
+
+def _dark_matter_loss(law: Callable, training: list) -> float:
+    """Mean-squared probe-position error on dark-matter training trajectories.
+
+    The discovered law operates on 25 agent-visible particles (20 visible
+    + 5 probes). Loss aggregates squared distance across the 5 probe
+    particles only, matching DarkMatterEvaluator's probe-only scoring.
+    """
+    total_sq = 0.0
+    count = 0
+    for sample in training:
+        case = sample["input"]
+        out = sample["output"]
+        init_positions = case.get("init_positions")
+        init_velocities = case.get("init_velocities")
+        times = out.get("measurement_times", case.get("measurement_times", []))
+        obs_positions = np.asarray(out.get("positions", []))
+        if init_positions is None or init_velocities is None:
+            continue
+        if obs_positions.ndim != 3 or len(times) == 0:
+            continue
+        for j, t in enumerate(times):
+            try:
+                pred = np.asarray(
+                    law(positions=init_positions,
+                        velocities=init_velocities,
+                        duration=float(t))
+                )
+            except Exception:
+                return float("inf")
+            if pred.shape != obs_positions[j].shape:
+                return float("inf")
+            diff = pred[_DARK_MATTER_PROBE_SLICE] - obs_positions[j, _DARK_MATTER_PROBE_SLICE]
+            total_sq += float(np.sum(diff * diff))
+            count += diff.size // 2
+    if count == 0:
+        return float("inf")
+    return total_sq / count
+
+
 def _validate_fit_spec(spec) -> list:
     """
     Normalise the user-returned fit_parameters spec into a list of
@@ -810,37 +907,58 @@ def _fit_law_parameters(
     training: list,
     loss_fn: Callable,
     maxiter: int = FIT_MAXITER,
+    time_budget_s: float = FIT_TIME_BUDGET_S,
 ) -> dict:
     """
-    Run scipy.optimize.minimize to find best-fit parameters. Uses L-BFGS-B
-    (bounded) since every parameter must declare bounds.
-
-    Returns a dict {name: fitted_value}. Raises RuntimeError on optimiser
-    failure so the caller can fall back to init values.
+    Run scipy.optimize.minimize (L-BFGS-B, bounded) with a wall-clock budget.
+    If `time_budget_s` is exceeded mid-fit, returns the best parameters seen
+    so far rather than raising — slow agent code never blocks a benchmark cell
+    indefinitely. Same code path is used for mid-round and final-eval fitting,
+    so the budget covers both.
     """
     if not fit_spec_list:
         return {}
+    import time
     from scipy.optimize import minimize
 
     names  = [s[0] for s in fit_spec_list]
     x0     = [s[1] for s in fit_spec_list]
     bounds = [s[2] for s in fit_spec_list]
 
+    state = {
+        "best_x": list(x0),
+        "best_loss": float("inf"),
+        "deadline": time.monotonic() + time_budget_s,
+    }
+
     def _objective(x):
+        if time.monotonic() > state["deadline"]:
+            raise _FitTimeBudgetExceeded()
         kwargs = dict(zip(names, x.tolist()))
         bound_law = functools.partial(discovered_law, **kwargs)
         try:
-            return loss_fn(bound_law, training)
+            loss = loss_fn(bound_law, training)
         except Exception:
             return 1e12
+        if loss < state["best_loss"]:
+            state["best_loss"] = loss
+            state["best_x"] = list(x)
+        return loss
 
-    result = minimize(
-        _objective, x0,
-        method="L-BFGS-B",
-        bounds=bounds,
-        options={"maxiter": maxiter},
-    )
-    return dict(zip(names, result.x.tolist()))
+    try:
+        result = minimize(
+            _objective, x0,
+            method="L-BFGS-B",
+            bounds=bounds,
+            options={"maxiter": maxiter},
+        )
+        return dict(zip(names, result.x.tolist()))
+    except _FitTimeBudgetExceeded:
+        print(
+            f"  [fit time budget {time_budget_s:.0f}s exceeded; "
+            f"using best-so-far params (loss={state['best_loss']:.4g})]"
+        )
+        return dict(zip(names, state["best_x"]))
 
 
 def _maybe_fit(

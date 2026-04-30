@@ -80,8 +80,22 @@ Once confident, submit a single Python function in `<final_law>` tags.
 4. Constants you are CERTAIN about should be hard-coded inside the function body. Constants that remain UNCERTAIN (exponents, couplings) should be declared as *fittable parameters* via the optional `fit_parameters()` function below.
 5. Import any required libraries inside the function body.
 
+**Implementation note — time integration:**
+The evaluator calls your `discovered_law` many times — once per (case × measurement time) during scoring, and additionally inside `scipy.optimize` when `fit_parameters()` declares free parameters. **Do NOT write Python `for` loops with small fixed `dt`** (e.g. `for _ in range(int(duration/dt))` with `dt=1e-3`) — they dominate runtime and can make a single law evaluation take seconds instead of milliseconds. **Use `scipy.integrate.solve_ivp`** with adaptive RK45 instead; it picks step sizes automatically and reaches comparable accuracy with 10–100× fewer steps. The fit runs `scipy.optimize.minimize` under a 60-second wall-clock budget — if your law is too slow, fitting will exit early with the best parameters found so far (likely suboptimal), which hurts your score directly.
+
+Skeleton:
+```python
+from scipy.integrate import solve_ivp
+def rhs(t, y):
+    # unpack y → positions/velocities; compute accelerations from your force law
+    return dydt
+sol = solve_ivp(rhs, (0.0, duration), y0, method="RK45", rtol=1e-4, atol=1e-4)
+final_state = sol.y[:, -1]
+```
+If your law genuinely cannot be expressed as an ODE, vectorise with NumPy operations on whole arrays — never a tight Python loop over scalars.
+
 **Fittable Parameters (optional, recommended when you have uncertain constants):**
-Alongside `discovered_law`, you may define a second function `fit_parameters()` that returns a dict of free parameters the evaluator should fit with `scipy.optimize` on the training trajectories you already collected. Each entry must provide a sensible starting value (`init`) and physically plausible bounds (`bounds`). At most **5** free parameters are allowed.
+Alongside `discovered_law`, you may define a second function `fit_parameters()` that returns a dict of free parameters the evaluator should fit with `scipy.optimize` on the training trajectories you already collected. Each entry must provide a sensible starting value (`init`) and physically plausible bounds (`bounds`). At most **3** free parameters are allowed.
 
 ```
 def fit_parameters():
