@@ -27,6 +27,11 @@ import requests
 from typing import Optional
 
 
+# Per-request wall-clock cap for any provider HTTP call. Stops a stalled
+# upstream (Together / OpenRouter / HF / etc.) from hanging the whole run.
+HTTP_TIMEOUT_S = 180.0
+
+
 def complete(
     model: str,
     messages: list[dict],
@@ -81,7 +86,7 @@ def _anthropic_complete(model, messages, system, max_tokens, temperature):
     if not api_key:
         raise EnvironmentError("ANTHROPIC_API_KEY not set")
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=HTTP_TIMEOUT_S)
     kwargs = dict(
         model=model,
         max_tokens=max_tokens,
@@ -116,6 +121,7 @@ def _openrouter_complete(model, messages, system, max_tokens, temperature):
             "max_tokens": max_tokens,
             "temperature": temperature,
         },
+        timeout=HTTP_TIMEOUT_S,
     )
     if not response.ok:
         raise RuntimeError(f"OpenRouter error {response.status_code}: {response.text}")
@@ -138,7 +144,7 @@ def _groq_complete(model, messages, system, max_tokens, temperature):
     if not api_key:
         raise EnvironmentError("OPENAI_API_KEY not set")
 
-    client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+    client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1", timeout=HTTP_TIMEOUT_S)
 
     full_messages = []
     if system:
@@ -189,6 +195,7 @@ def _azure_complete(model, messages, system, max_tokens, temperature):
         api_key=api_key,
         azure_endpoint=endpoint,
         api_version="2025-04-01-preview",
+        timeout=HTTP_TIMEOUT_S,
     )
 
     # Azure deployments use the Responses API
@@ -238,7 +245,7 @@ def _openai_complete(model, messages, system, max_tokens, temperature):
 
     resolved_model, base_url, api_key = _resolve_openai_provider(model)
 
-    client_kwargs = {}
+    client_kwargs = {"timeout": HTTP_TIMEOUT_S}
     if api_key:
         client_kwargs["api_key"] = api_key
     if base_url:

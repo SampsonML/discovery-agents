@@ -15,9 +15,48 @@ MAX_FIT_PARAMETERS = 3
 FIT_MAXITER = 15
 FIT_TIME_BUDGET_S = 60.0  # wall-clock cap on a single scipy.optimize.minimize call
 
+# Wall-clock cap for a single discovered_law call. Stops a pathological law
+# (Python for-loop with tiny dt, stiff ODE, infinite loop) from hanging the
+# scoring loop or the fit objective indefinitely.
+LAW_CALL_TIMEOUT_S = 10.0
+
 
 class _FitTimeBudgetExceeded(Exception):
     """Raised inside the optimizer objective when the wall-clock budget is hit."""
+
+
+class _LawCallTimeout(Exception):
+    """Raised when a single discovered_law call exceeds LAW_CALL_TIMEOUT_S."""
+
+
+def _wrap_with_timeout(fn: Callable, timeout_s: float = LAW_CALL_TIMEOUT_S) -> Callable:
+    """
+    Wrap `fn` so any single call exceeding `timeout_s` raises _LawCallTimeout.
+    Uses SIGALRM (Unix-only, main-thread-only). Falls back to the unwrapped
+    function on Windows or off-main-thread, where SIGALRM is unavailable.
+    """
+    import signal
+    import threading
+
+    if not hasattr(signal, "SIGALRM"):
+        return fn
+    if threading.current_thread() is not threading.main_thread():
+        return fn
+
+    def _handler(signum, frame):
+        raise _LawCallTimeout(f"discovered_law exceeded {timeout_s:g}s")
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        old_handler = signal.signal(signal.SIGALRM, _handler)
+        signal.setitimer(signal.ITIMER_REAL, timeout_s)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, old_handler)
+
+    return wrapper
 
 
 # Default held-out test cases: (p1, p2, pos2, velocity2, measurement_times)
@@ -661,13 +700,19 @@ def clean_law_source(source: str) -> str:
 
 
 def _compile_law(source: str) -> Callable:
-    """Compile and return the discovered_law function from a source string."""
+    """Compile and return the discovered_law function from a source string.
+
+    The returned callable is wrapped with a per-call wall-clock timeout so a
+    pathological law (tiny-dt for-loop, stiff ODE, infinite loop) cannot hang
+    scoring or the fit objective. Every consumer — direct scoring loops and
+    loss_fn calls inside the optimizer — inherits the cap automatically.
+    """
     source = clean_law_source(source)
     namespace = {}
     exec(compile(source, "<discovered_law>", "exec"), namespace)
     if "discovered_law" not in namespace:
         raise ValueError("Source does not define a function named `discovered_law`")
-    return namespace["discovered_law"]
+    return _wrap_with_timeout(namespace["discovered_law"])
 
 
 def _compile_fit_parameters(source: str) -> Optional[Callable]:
