@@ -185,7 +185,7 @@ The discovered law submitted by the agent:
 
 ### Batch Benchmarking with YAML Configs
 
-For sweeping the agent across many (model × world × seed) combinations, the project ships a YAML-driven runner that generates a reproducible bash script, executes it, and writes summary tables and plots automatically.
+For sweeping the agent across many (model × world × seed) combinations, we include a YAML-driven runner that generates a reproducible bash script, executes it, and writes summary tables and plots automatically.
 
 Define a config such as `configs/example.yml`:
 
