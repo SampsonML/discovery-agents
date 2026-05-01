@@ -21,11 +21,12 @@ from scienceagent.executor import (
 )
 from scienceagent.evaluator import Evaluator
 
-
 _GRAVITY_OPS = [{"type": "laplacian", "params": {"strength": 1.0}}]
 _EXP = {
-    "p1": 1.0, "p2": 1.0,
-    "pos2": [3.0, 0.0], "velocity2": [0.0, 0.0],
+    "p1": 1.0,
+    "p2": 1.0,
+    "pos2": [3.0, 0.0],
+    "velocity2": [0.0, 0.0],
     "measurement_times": [1.0, 2.0, 3.0],
 }
 
@@ -85,9 +86,9 @@ def test_noise_is_fresh_across_calls():
     ex = _make_executor(noise_std=0.1, noise_seed=42)
     a = np.asarray(ex.run([_EXP])[0]["pos2"])
     b = np.asarray(ex.run([_EXP])[0]["pos2"])
-    assert not np.array_equal(a, b), (
-        "fresh noise should be sampled on every call so the agent cannot average it out"
-    )
+    assert not np.array_equal(
+        a, b
+    ), "fresh noise should be sampled on every call so the agent cannot average it out"
 
 
 def test_noise_seed_is_reproducible_across_executors():
@@ -143,13 +144,16 @@ def test_evaluator_ground_truth_is_noise_free():
     assert noisy_executor.noise_std == 0.5
 
 
-@pytest.mark.parametrize("cls", [
-    SimulationExecutor,
-    SpeciesExecutor,
-    CircleExecutor,
-    ThreeSpeciesExecutor,
-    DarkMatterExecutor,
-])
+@pytest.mark.parametrize(
+    "cls",
+    [
+        SimulationExecutor,
+        SpeciesExecutor,
+        CircleExecutor,
+        ThreeSpeciesExecutor,
+        DarkMatterExecutor,
+    ],
+)
 def test_all_executors_accept_noise_kwargs(cls):
     """Smoke test: every executor class accepts noise_std/noise_seed in __init__."""
     ex = cls(noise_std=0.1, noise_seed=0)

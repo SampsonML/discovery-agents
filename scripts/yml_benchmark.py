@@ -25,7 +25,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 _BOOTSTRAP_RESAMPLES = 5000
 _BOOTSTRAP_SEED = 0  # fixed so summary.txt is reproducible across re-aggregation
 
@@ -210,11 +209,13 @@ def aggregate(out_root: Path) -> Path:
 
     for (model, world), values in sorted(by_trial.items()):
         scores = [
-            float(s) for _, s in values
+            float(s)
+            for _, s in values
             if isinstance(s, (int, float)) and math.isfinite(s)
         ]
         errs = [
-            float(e) for e, _ in values
+            float(e)
+            for e, _ in values
             if isinstance(e, (int, float)) and math.isfinite(e)
         ]
         n = len(values)
@@ -224,7 +225,9 @@ def aggregate(out_root: Path) -> Path:
 
     lines.append("-" * 116)
     lines.append("expl_score: explanation judge score in [0, 1], higher is better.")
-    lines.append("mean_pos_err: trajectory mean position error, lower is better; pass < 0.1.")
+    lines.append(
+        "mean_pos_err: trajectory mean position error, lower is better; pass < 0.1."
+    )
     lines.append(
         f"Format: mean [2.5%, 97.5%] from {_BOOTSTRAP_RESAMPLES} bootstrap resamples "
         f"of the mean (seed={_BOOTSTRAP_SEED}). n=1 → no CI. 'n/a' = no successful runs."
@@ -244,12 +247,10 @@ def _short(model: str) -> str:
 def _trial_values(by_trial, model, world):
     values = by_trial.get((model, world), [])
     errs = [
-        float(e) for e, _ in values
-        if isinstance(e, (int, float)) and math.isfinite(e)
+        float(e) for e, _ in values if isinstance(e, (int, float)) and math.isfinite(e)
     ]
     scores = [
-        float(s) for _, s in values
-        if isinstance(s, (int, float)) and math.isfinite(s)
+        float(s) for _, s in values if isinstance(s, (int, float)) and math.isfinite(s)
     ]
     return errs, scores
 
@@ -275,6 +276,7 @@ def _make_plots(by_trial, out_root: Path) -> None:
         return
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
@@ -312,12 +314,21 @@ def _make_bar_plot(by_trial, models, worlds, out_root, plt) -> None:
         offset = (i - (n_models - 1) / 2) * width
         color = cmap(i % 10)
         ax_score.bar(
-            x + offset, sh, width=width, yerr=[sl, su],
-            label=_short(model), color=color, capsize=3,
+            x + offset,
+            sh,
+            width=width,
+            yerr=[sl, su],
+            label=_short(model),
+            color=color,
+            capsize=3,
         )
         ax_err.bar(
-            x + offset, eh, width=width, yerr=[el, eu],
-            color=color, capsize=3,
+            x + offset,
+            eh,
+            width=width,
+            yerr=[el, eu],
+            color=color,
+            capsize=3,
         )
 
     for ax, title, ylabel in [
@@ -335,8 +346,11 @@ def _make_bar_plot(by_trial, models, worlds, out_root, plt) -> None:
     fig.suptitle(f"Benchmark: {out_root.name}", y=1.02)
     handles, labels = ax_score.get_legend_handles_labels()
     fig.legend(
-        handles, labels, loc="lower center",
-        ncol=min(4, max(1, n_models)), bbox_to_anchor=(0.5, -0.05),
+        handles,
+        labels,
+        loc="lower center",
+        ncol=min(4, max(1, n_models)),
+        bbox_to_anchor=(0.5, -0.05),
     )
     fig.tight_layout()
     fig.savefig(out_root / "summary.png", dpi=150, bbox_inches="tight")
@@ -364,8 +378,12 @@ def _make_strip_plot(by_trial, models, worlds, out_root, plt) -> None:
                 jitter = rng.normal(0, 0.03, size=len(scores))
                 ax_score.scatter(
                     np.full(len(scores), x[j] + offset) + jitter,
-                    scores, color=color, alpha=0.75, s=30,
-                    edgecolors="white", linewidth=0.5,
+                    scores,
+                    color=color,
+                    alpha=0.75,
+                    s=30,
+                    edgecolors="white",
+                    linewidth=0.5,
                     label=_short(model) if not first_label_used else None,
                 )
                 first_label_used = True
@@ -373,8 +391,12 @@ def _make_strip_plot(by_trial, models, worlds, out_root, plt) -> None:
                 jitter = rng.normal(0, 0.03, size=len(errs))
                 ax_err.scatter(
                     np.full(len(errs), x[j] + offset) + jitter,
-                    errs, color=color, alpha=0.75, s=30,
-                    edgecolors="white", linewidth=0.5,
+                    errs,
+                    color=color,
+                    alpha=0.75,
+                    s=30,
+                    edgecolors="white",
+                    linewidth=0.5,
                 )
 
     for ax, title, ylabel in [
@@ -393,8 +415,11 @@ def _make_strip_plot(by_trial, models, worlds, out_root, plt) -> None:
     handles, labels = ax_score.get_legend_handles_labels()
     if handles:
         fig.legend(
-            handles, labels, loc="lower center",
-            ncol=min(4, max(1, n_models)), bbox_to_anchor=(0.5, -0.05),
+            handles,
+            labels,
+            loc="lower center",
+            ncol=min(4, max(1, n_models)),
+            bbox_to_anchor=(0.5, -0.05),
         )
     fig.tight_layout()
     fig.savefig(out_root / "runs.png", dpi=150, bbox_inches="tight")
@@ -423,15 +448,18 @@ def main() -> int:
     )
     parser.add_argument("config", nargs="?", help="Path to YAML config")
     parser.add_argument(
-        "--no-run", action="store_true",
+        "--no-run",
+        action="store_true",
         help="Generate run.sh but do not execute it",
     )
     parser.add_argument(
-        "--aggregate-only", metavar="DIR",
+        "--aggregate-only",
+        metavar="DIR",
         help="Skip generation/run; aggregate an existing output dir",
     )
     parser.add_argument(
-        "--out-root", default=None,
+        "--out-root",
+        default=None,
         help="Override output root (default: results/yml_bench/<name>)",
     )
     args = parser.parse_args()
@@ -452,7 +480,8 @@ def main() -> int:
 
     cfg = load_config(Path(args.config))
     out_root = (
-        Path(args.out_root) if args.out_root
+        Path(args.out_root)
+        if args.out_root
         else REPO_ROOT / "results" / "yml_bench" / cfg["name"]
     )
     out_root.mkdir(parents=True, exist_ok=True)

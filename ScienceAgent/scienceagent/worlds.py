@@ -5,9 +5,17 @@ Each world entry defines the FieldSampler operator config that is
 *hidden* from the agent, plus a mission string that is shown to it.
 """
 
-from scienceagent.executor import SimulationExecutor, CircleExecutor, SpeciesExecutor, ThreeSpeciesExecutor, DarkMatterExecutor
+from scienceagent.executor import (
+    SimulationExecutor,
+    CircleExecutor,
+    SpeciesExecutor,
+    ThreeSpeciesExecutor,
+    DarkMatterExecutor,
+)
 
-_GENERAL_FORM = r"$\dfrac{\partial^n \varphi}{\partial t^n} = L[\varphi] + S(\mathrm{particles})$"
+_GENERAL_FORM = (
+    r"$\dfrac{\partial^n \varphi}{\partial t^n} = L[\varphi] + S(\mathrm{particles})$"
+)
 
 _TRUE_LAW_GRAVITY = (
     _GENERAL_FORM + "\n\n"
@@ -263,7 +271,12 @@ WORLDS = {
             "Discover the force law, including any distance-dependent suppression."
         ),
         "executor_kwargs": {
-            "operators": [{"type": "screening", "params": {"strength": 1.0, "screening_length": 2.0}}],
+            "operators": [
+                {
+                    "type": "screening",
+                    "params": {"strength": 1.0, "screening_length": 2.0},
+                }
+            ],
             "temporal_order": 0,
         },
         "true_law": _TRUE_LAW_YUKAWA,
@@ -284,7 +297,12 @@ WORLDS = {
             "Discover the law of motion."
         ),
         "executor_kwargs": {
-            "operators": [{"type": "fractional_laplacian", "params": {"strength": 1.0, "alpha": 0.5}}],
+            "operators": [
+                {
+                    "type": "fractional_laplacian",
+                    "params": {"strength": 1.0, "alpha": 0.5},
+                }
+            ],
             "temporal_order": 0,
         },
         "true_law": _TRUE_LAW_FRACTIONAL,
@@ -374,11 +392,11 @@ WORLDS = {
             "    return final_positions\n"
         ),
         "experiment_format": (
-            "<run_experiment>[{\"positions\": "
+            '<run_experiment>[{"positions": '
             "[[0,0],[3,0],[-3,0],[0,3],[0,-3],[4,4]], "
-            "\"velocities\": "
+            '"velocities": '
             "[[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]], "
-            "\"measurement_times\": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]}]"
+            '"measurement_times": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]}]'
             "</run_experiment>"
         ),
     },
@@ -424,11 +442,11 @@ WORLDS = {
             "    return final_positions\n"
         ),
         "experiment_format": (
-            "<run_experiment>[{\"probe_positions\": "
+            '<run_experiment>[{"probe_positions": '
             "[[5,0],[0,5],[-5,0],[0,-5],[7,7]], "
-            "\"probe_velocities\": "
+            '"probe_velocities": '
             "[[0,0],[0,0],[0,0],[0,0],[0,0]], "
-            "\"measurement_times\": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]}]"
+            '"measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]}]'
             "</run_experiment>"
         ),
     },
@@ -468,11 +486,11 @@ WORLDS = {
             "    return final_positions\n"
         ),
         "experiment_format": (
-            "<run_experiment>[{\"probe_positions\": "
+            '<run_experiment>[{"probe_positions": '
             "[[5,0],[0,5],[-5,0],[0,-5],[7,7]], "
-            "\"probe_velocities\": "
+            '"probe_velocities": '
             "[[0,0],[0,0],[0,0],[0,0],[0,0]], "
-            "\"measurement_times\": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]}]"
+            '"measurement_times": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]}]'
             "</run_experiment>"
         ),
     },
@@ -507,9 +525,9 @@ WORLDS = {
             "    return final_positions\n"
         ),
         "experiment_format": (
-            "<run_experiment>[{\"ring_radius\": 5.0, "
-            "\"initial_tangential_velocity\": 0.0, "
-            "\"measurement_times\": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]}]"
+            '<run_experiment>[{"ring_radius": 5.0, '
+            '"initial_tangential_velocity": 0.0, '
+            '"measurement_times": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]}]'
             "</run_experiment>"
         ),
     },
@@ -545,8 +563,8 @@ def get_world(name: str, **executor_overrides) -> dict:
     )
     default_system_prompt = "PhysicsSchool/prompts/run_experiments.md"
     default_experiment_format = (
-        "<run_experiment>[{\"p1\": 1.0, \"p2\": 1.0, \"pos2\": [3.0, 0.0], "
-        "\"velocity2\": [0.0, 0.0], \"measurement_times\": [0.5, 1.0, 2.0]}]</run_experiment>"
+        '<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
+        '"velocity2": [0.0, 0.0], "measurement_times": [0.5, 1.0, 2.0]}]</run_experiment>'
     )
 
     return {

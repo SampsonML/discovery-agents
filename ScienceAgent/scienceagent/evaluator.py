@@ -8,8 +8,12 @@ import re
 import numpy as np
 from typing import Callable, Optional
 
-from scienceagent.executor import SimulationExecutor, SpeciesExecutor, ThreeSpeciesExecutor, DarkMatterExecutor
-
+from scienceagent.executor import (
+    SimulationExecutor,
+    SpeciesExecutor,
+    ThreeSpeciesExecutor,
+    DarkMatterExecutor,
+)
 
 MAX_FIT_PARAMETERS = 3
 FIT_MAXITER = 15
@@ -61,9 +65,27 @@ def _wrap_with_timeout(fn: Callable, timeout_s: float = LAW_CALL_TIMEOUT_S) -> C
 
 # Default held-out test cases: (p1, p2, pos2, velocity2, measurement_times)
 _DEFAULT_TEST_CASES = [
-    {"p1": 1.0,  "p2": 1.0,  "pos2": [3.0, 0.0],  "velocity2": [0.0, 0.5],  "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]},
-    {"p1": 2.0,  "p2": 1.0,  "pos2": [5.0, 0.0],  "velocity2": [0.0, 0.0],  "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]},
-    {"p1": 1.0,  "p2": 2.0,  "pos2": [-4.0, 2.0], "velocity2": [0.3, -0.3], "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]},
+    {
+        "p1": 1.0,
+        "p2": 1.0,
+        "pos2": [3.0, 0.0],
+        "velocity2": [0.0, 0.5],
+        "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+    },
+    {
+        "p1": 2.0,
+        "p2": 1.0,
+        "pos2": [5.0, 0.0],
+        "velocity2": [0.0, 0.0],
+        "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+    },
+    {
+        "p1": 1.0,
+        "p2": 2.0,
+        "pos2": [-4.0, 2.0],
+        "velocity2": [0.3, -0.3],
+        "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+    },
 ]
 
 
@@ -112,7 +134,11 @@ class Evaluator:
         """
         discovered_law = _compile_law(law_source)
         discovered_law, fit_info = _maybe_fit(
-            law_source, discovered_law, training_trajectories, _two_particle_loss, verbose
+            law_source,
+            discovered_law,
+            training_trajectories,
+            _two_particle_loss,
+            verbose,
         )
 
         with self.executor.noise_disabled():
@@ -150,15 +176,18 @@ class Evaluator:
                 mean_err = float(np.mean(case_errors))
                 per_case_errors.append(mean_err)
                 all_errors.extend(case_errors)
-                trajectories.append({
-                    "case": i + 1,
-                    "times": case["measurement_times"],
-                    "p1": case["p1"], "p2": case["p2"],
-                    "gt1": gt_pos1.tolist(),
-                    "gt": gt_pos2.tolist(),
-                    "pred": pred_traj,
-                    "error": mean_err,
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "p1": case["p1"],
+                        "p2": case["p2"],
+                        "gt1": gt_pos1.tolist(),
+                        "gt": gt_pos2.tolist(),
+                        "pred": pred_traj,
+                        "error": mean_err,
+                    }
+                )
 
                 if verbose:
                     print(f"  Case {i+1}: mean_pos_error = {mean_err:.4f}")
@@ -168,15 +197,18 @@ class Evaluator:
                     print(f"  Case {i+1}: ERROR — {e}")
                 per_case_errors.append(float("inf"))
                 all_errors.append(float("inf"))
-                trajectories.append({
-                    "case": i + 1,
-                    "times": case["measurement_times"],
-                    "p1": case["p1"], "p2": case["p2"],
-                    "gt1": gt_pos1.tolist(),
-                    "gt": gt_pos2.tolist(),
-                    "pred": None,
-                    "error": float("inf"),
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "p1": case["p1"],
+                        "p2": case["p2"],
+                        "gt1": gt_pos1.tolist(),
+                        "gt": gt_pos2.tolist(),
+                        "pred": None,
+                        "error": float("inf"),
+                    }
+                )
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
@@ -200,8 +232,11 @@ class Evaluator:
 # seperate circle world for now as particle amounts are hard-coded into the evals
 _CIRCLE_TEST_CASES = [
     # Ring with tangential velocity — tests orbital / spiral dynamics
-    {"ring_radius": 5.0, "initial_tangential_velocity": 0.3,
-     "measurement_times": [2.0, 4.0, 6.0, 8.0, 10.0]},
+    {
+        "ring_radius": 5.0,
+        "initial_tangential_velocity": 0.3,
+        "measurement_times": [2.0, 4.0, 6.0, 8.0, 10.0],
+    },
 ]
 
 
@@ -245,20 +280,26 @@ class CircleEvaluator:
         trajectories = []
 
         for i, (case, gt) in enumerate(zip(self.test_cases, ground_truths)):
-            gt_positions = np.asarray(gt["positions"])   # (T, 11, 2)
-            gt_velocities = np.asarray(gt["velocities"]) # (T, 11, 2)
+            gt_positions = np.asarray(gt["positions"])  # (T, 11, 2)
+            gt_velocities = np.asarray(gt["velocities"])  # (T, 11, 2)
             init_pos = gt_positions[0] if len(gt_positions) > 0 else None
 
             # Initial conditions: positions and velocities at t=0
             # Run the simulator one step from t=0 to get t=0 state
-            zero_result = self.executor.run([{**case, "measurement_times": [case["measurement_times"][0]]}])
+            zero_result = self.executor.run(
+                [{**case, "measurement_times": [case["measurement_times"][0]]}]
+            )
             # Actually just reconstruct from ring_radius and v_tang
             ring_radius = float(case.get("ring_radius", 5.0))
             v_tang = float(case.get("initial_tangential_velocity", 0.0))
             angles = np.linspace(0, 2 * np.pi, 10, endpoint=False)
-            ring_pos = np.column_stack([ring_radius * np.cos(angles), ring_radius * np.sin(angles)])
+            ring_pos = np.column_stack(
+                [ring_radius * np.cos(angles), ring_radius * np.sin(angles)]
+            )
             init_positions = np.vstack([[[0.0, 0.0]], ring_pos]).tolist()
-            ring_vel = np.column_stack([-v_tang * np.sin(angles), v_tang * np.cos(angles)])
+            ring_vel = np.column_stack(
+                [-v_tang * np.sin(angles), v_tang * np.cos(angles)]
+            )
             init_velocities = np.vstack([[[0.0, 0.0]], ring_vel]).tolist()
 
             try:
@@ -270,7 +311,7 @@ class CircleEvaluator:
                         velocities=init_velocities,
                         duration=t,
                     )
-                    pos_out = np.asarray(pos_out)   # (11, 2)
+                    pos_out = np.asarray(pos_out)  # (11, 2)
                     pred_traj.append(pos_out.tolist())
 
                     # Per-particle Euclidean error
@@ -280,37 +321,43 @@ class CircleEvaluator:
 
                 mean_err = float(np.mean(case_errors))
                 per_case_errors.append(mean_err)
-                trajectories.append({
-                    "case": i + 1,
-                    "ring_radius": case["ring_radius"],
-                    "v_tang": case["initial_tangential_velocity"],
-                    "times": case["measurement_times"],
-                    "gt": gt_positions.tolist(),
-                    "pred": pred_traj,
-                    "error": mean_err,
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "ring_radius": case["ring_radius"],
+                        "v_tang": case["initial_tangential_velocity"],
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": pred_traj,
+                        "error": mean_err,
+                    }
+                )
                 if verbose:
-                    print(f"  Case {i+1} (r={case['ring_radius']}, v_t={case['initial_tangential_velocity']}): "
-                          f"mean_pos_error = {mean_err:.4f}")
+                    print(
+                        f"  Case {i+1} (r={case['ring_radius']}, v_t={case['initial_tangential_velocity']}): "
+                        f"mean_pos_error = {mean_err:.4f}"
+                    )
 
             except Exception as e:
                 if verbose:
                     print(f"  Case {i+1}: ERROR — {e}")
                 per_case_errors.append(float("inf"))
                 all_errors.append(float("inf"))
-                trajectories.append({
-                    "case": i + 1,
-                    "ring_radius": case["ring_radius"],
-                    "v_tang": case["initial_tangential_velocity"],
-                    "times": case["measurement_times"],
-                    "gt": gt_positions.tolist() if gt_positions is not None else [],
-                    "pred": None,
-                    "error": float("inf"),
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "ring_radius": case["ring_radius"],
+                        "v_tang": case["initial_tangential_velocity"],
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist() if gt_positions is not None else [],
+                        "pred": None,
+                        "error": float("inf"),
+                    }
+                )
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
-        passed = mean_total < 0.5   # looser threshold: 11-particle problem is harder
+        passed = mean_total < 0.5  # looser threshold: 11-particle problem is harder
 
         if verbose:
             print(f"\n  Mean position error (all particles): {mean_total:.4f}")
@@ -372,7 +419,7 @@ class SpeciesEvaluator:
         trajectories = []
 
         for i, (case, gt) in enumerate(zip(self.test_cases, ground_truths)):
-            gt_positions = np.asarray(gt["positions"])    # (T, 6, 2)
+            gt_positions = np.asarray(gt["positions"])  # (T, 6, 2)
             init_positions = case["positions"]
             init_velocities = case["velocities"]
 
@@ -385,7 +432,7 @@ class SpeciesEvaluator:
                         velocities=init_velocities,
                         duration=t,
                     )
-                    pos_out = np.asarray(pos_out)   # (6, 2)
+                    pos_out = np.asarray(pos_out)  # (6, 2)
                     pred_traj.append(pos_out.tolist())
 
                     errs = np.linalg.norm(pos_out - gt_positions[j], axis=-1)  # (6,)
@@ -394,13 +441,15 @@ class SpeciesEvaluator:
 
                 mean_err = float(np.mean(case_errors))
                 per_case_errors.append(mean_err)
-                trajectories.append({
-                    "case": i + 1,
-                    "times": case["measurement_times"],
-                    "gt": gt_positions.tolist(),
-                    "pred": pred_traj,
-                    "error": mean_err,
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": pred_traj,
+                        "error": mean_err,
+                    }
+                )
                 if verbose:
                     print(f"  Case {i+1}: mean_pos_error = {mean_err:.4f}")
 
@@ -409,13 +458,15 @@ class SpeciesEvaluator:
                     print(f"  Case {i+1}: ERROR -- {e}")
                 per_case_errors.append(float("inf"))
                 all_errors.append(float("inf"))
-                trajectories.append({
-                    "case": i + 1,
-                    "times": case["measurement_times"],
-                    "gt": gt_positions.tolist(),
-                    "pred": None,
-                    "error": float("inf"),
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": None,
+                        "error": float("inf"),
+                    }
+                )
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
@@ -433,6 +484,7 @@ class SpeciesEvaluator:
             "passed": passed,
             "trajectories": trajectories,
         }
+
 
 _THREE_SPECIES_TEST_CASES = [
     {
@@ -476,16 +528,16 @@ class ThreeSpeciesEvaluator:
         trajectories = []
 
         for i, (case, gt) in enumerate(zip(self.test_cases, ground_truths)):
-            gt_positions = np.asarray(gt["positions"])    # (T, 35, 2)
+            gt_positions = np.asarray(gt["positions"])  # (T, 35, 2)
             bg_init = np.asarray(gt["background_initial_positions"])  # (30, 2)
 
             # Reconstruct initial conditions for all 35 particles
-            probe_pos = np.asarray(case["probe_positions"])    # (5, 2)
-            probe_vel = np.asarray(case["probe_velocities"])   # (5, 2)
+            probe_pos = np.asarray(case["probe_positions"])  # (5, 2)
+            probe_vel = np.asarray(case["probe_velocities"])  # (5, 2)
             init_positions = np.vstack([bg_init, probe_pos]).tolist()
-            init_velocities = np.vstack([
-                np.zeros((self.executor.N_BACKGROUND, 2)), probe_vel
-            ]).tolist()
+            init_velocities = np.vstack(
+                [np.zeros((self.executor.N_BACKGROUND, 2)), probe_vel]
+            ).tolist()
 
             try:
                 pred_traj = []
@@ -496,7 +548,7 @@ class ThreeSpeciesEvaluator:
                         velocities=init_velocities,
                         duration=t,
                     )
-                    pos_out = np.asarray(pos_out)   # (35, 2)
+                    pos_out = np.asarray(pos_out)  # (35, 2)
                     pred_traj.append(pos_out.tolist())
 
                     errs = np.linalg.norm(pos_out - gt_positions[j], axis=-1)  # (35,)
@@ -505,13 +557,15 @@ class ThreeSpeciesEvaluator:
 
                 mean_err = float(np.mean(case_errors))
                 per_case_errors.append(mean_err)
-                trajectories.append({
-                    "case": i + 1,
-                    "times": case["measurement_times"],
-                    "gt": gt_positions.tolist(),
-                    "pred": pred_traj,
-                    "error": mean_err,
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": pred_traj,
+                        "error": mean_err,
+                    }
+                )
                 if verbose:
                     print(f"  Case {i+1}: mean_pos_error = {mean_err:.4f}")
 
@@ -520,13 +574,15 @@ class ThreeSpeciesEvaluator:
                     print(f"  Case {i+1}: ERROR -- {e}")
                 per_case_errors.append(float("inf"))
                 all_errors.append(float("inf"))
-                trajectories.append({
-                    "case": i + 1,
-                    "times": case["measurement_times"],
-                    "gt": gt_positions.tolist(),
-                    "pred": None,
-                    "error": float("inf"),
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": None,
+                        "error": float("inf"),
+                    }
+                )
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
@@ -556,7 +612,13 @@ _DARK_MATTER_TEST_CASES = [
     {
         # Probes at moderate-large radii, CW visible orbits
         "probe_positions": [[9, 5], [-7, 10], [-10, -6], [6, -11], [0, 15]],
-        "probe_velocities": [[0.5, -2.0], [2.0, 0.5], [-0.5, 2.0], [-2.0, -0.5], [2.5, 0]],
+        "probe_velocities": [
+            [0.5, -2.0],
+            [2.0, 0.5],
+            [-0.5, 2.0],
+            [-2.0, -0.5],
+            [2.5, 0],
+        ],
         "visible_velocity_sign": -1.0,  # CW orbits
         "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
     },
@@ -605,7 +667,7 @@ class DarkMatterEvaluator:
         for i, (case, gt, gt_full) in enumerate(
             zip(self.test_cases, ground_truths, full_truths)
         ):
-            gt_positions = np.asarray(gt["positions"])   # (T, 25, 2)
+            gt_positions = np.asarray(gt["positions"])  # (T, 25, 2)
             bg_init = np.asarray(gt["background_initial_positions"])  # (20, 2)
 
             # Reconstruct agent-visible initial conditions
@@ -625,7 +687,7 @@ class DarkMatterEvaluator:
                         velocities=init_velocities,
                         duration=t,
                     )
-                    pos_out = np.asarray(pos_out)   # (25, 2)
+                    pos_out = np.asarray(pos_out)  # (25, 2)
                     pred_traj.append(pos_out.tolist())
 
                     # Score only on the 5 probe particles
@@ -637,16 +699,18 @@ class DarkMatterEvaluator:
 
                 mean_err = float(np.mean(case_errors))
                 per_case_errors.append(mean_err)
-                trajectories.append({
-                    "case": i + 1,
-                    "times": case["measurement_times"],
-                    "gt": gt_positions.tolist(),       # (T, 25, 2) agent-visible
-                    "gt_full": gt_full["positions"],   # (T, 35, 2) all particles
-                    "field_snapshots": gt_full["field_snapshots"],
-                    "dark_initial": gt_full["dark_initial_positions"],
-                    "pred": pred_traj,
-                    "error": mean_err,
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),  # (T, 25, 2) agent-visible
+                        "gt_full": gt_full["positions"],  # (T, 35, 2) all particles
+                        "field_snapshots": gt_full["field_snapshots"],
+                        "dark_initial": gt_full["dark_initial_positions"],
+                        "pred": pred_traj,
+                        "error": mean_err,
+                    }
+                )
                 if verbose:
                     print(f"  Case {i+1}: mean_probe_error = {mean_err:.4f}")
 
@@ -655,16 +719,18 @@ class DarkMatterEvaluator:
                     print(f"  Case {i+1}: ERROR -- {e}")
                 per_case_errors.append(float("inf"))
                 all_errors.append(float("inf"))
-                trajectories.append({
-                    "case": i + 1,
-                    "times": case["measurement_times"],
-                    "gt": gt_positions.tolist(),
-                    "gt_full": gt_full["positions"],
-                    "field_snapshots": gt_full["field_snapshots"],
-                    "dark_initial": gt_full["dark_initial_positions"],
-                    "pred": None,
-                    "error": float("inf"),
-                })
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "gt_full": gt_full["positions"],
+                        "field_snapshots": gt_full["field_snapshots"],
+                        "dark_initial": gt_full["dark_initial_positions"],
+                        "pred": None,
+                        "error": float("inf"),
+                    }
+                )
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
@@ -689,11 +755,16 @@ class DarkMatterEvaluator:
 def clean_law_source(source: str) -> str:
     """Strip markdown fences and prose before the first code line."""
     import re as _re
+
     source = _re.sub(r"^```[a-zA-Z]*\n?", "", source.strip(), flags=_re.MULTILINE)
     source = source.replace("```", "")
     lines = source.splitlines()
     code_start = next(
-        (i for i, l in enumerate(lines) if l.startswith("def ") or l.startswith("import ") or l.startswith("from ")),
+        (
+            i
+            for i, l in enumerate(lines)
+            if l.startswith("def ") or l.startswith("import ") or l.startswith("from ")
+        ),
         0,
     )
     return "\n".join(lines[code_start:])
@@ -801,7 +872,9 @@ def _circle_loss(law: Callable, training: list) -> float:
         ring_radius = float(case.get("ring_radius", 5.0))
         v_tang = float(case.get("initial_tangential_velocity", 0.0))
         angles = np.linspace(0, 2 * np.pi, 10, endpoint=False)
-        ring_pos = np.column_stack([ring_radius * np.cos(angles), ring_radius * np.sin(angles)])
+        ring_pos = np.column_stack(
+            [ring_radius * np.cos(angles), ring_radius * np.sin(angles)]
+        )
         init_positions = np.vstack([[[0.0, 0.0]], ring_pos]).tolist()
         ring_vel = np.column_stack([-v_tang * np.sin(angles), v_tang * np.cos(angles)])
         init_velocities = np.vstack([[[0.0, 0.0]], ring_vel]).tolist()
@@ -852,9 +925,11 @@ def _three_species_loss(law: Callable, training: list) -> float:
         for j, t in enumerate(times):
             try:
                 pred = np.asarray(
-                    law(positions=init_positions,
+                    law(
+                        positions=init_positions,
                         velocities=init_velocities,
-                        duration=float(t))
+                        duration=float(t),
+                    )
                 )
             except Exception:
                 return float("inf")
@@ -898,15 +973,20 @@ def _dark_matter_loss(law: Callable, training: list) -> float:
         for j, t in enumerate(times):
             try:
                 pred = np.asarray(
-                    law(positions=init_positions,
+                    law(
+                        positions=init_positions,
                         velocities=init_velocities,
-                        duration=float(t))
+                        duration=float(t),
+                    )
                 )
             except Exception:
                 return float("inf")
             if pred.shape != obs_positions[j].shape:
                 return float("inf")
-            diff = pred[_DARK_MATTER_PROBE_SLICE] - obs_positions[j, _DARK_MATTER_PROBE_SLICE]
+            diff = (
+                pred[_DARK_MATTER_PROBE_SLICE]
+                - obs_positions[j, _DARK_MATTER_PROBE_SLICE]
+            )
             total_sq += float(np.sum(diff * diff))
             count += diff.size // 2
     if count == 0:
@@ -929,15 +1009,23 @@ def _validate_fit_spec(spec) -> list:
     out = []
     for name, entry in spec.items():
         if not isinstance(entry, dict):
-            raise ValueError(f"fit_parameters()['{name}'] must be a dict with 'init' and 'bounds'")
+            raise ValueError(
+                f"fit_parameters()['{name}'] must be a dict with 'init' and 'bounds'"
+            )
         if "init" not in entry or "bounds" not in entry:
-            raise ValueError(f"fit_parameters()['{name}'] must provide both 'init' and 'bounds'")
+            raise ValueError(
+                f"fit_parameters()['{name}'] must provide both 'init' and 'bounds'"
+            )
         bounds = entry["bounds"]
         if not (isinstance(bounds, (list, tuple)) and len(bounds) == 2):
-            raise ValueError(f"fit_parameters()['{name}']['bounds'] must be a 2-element sequence")
+            raise ValueError(
+                f"fit_parameters()['{name}']['bounds'] must be a 2-element sequence"
+            )
         lo, hi = float(bounds[0]), float(bounds[1])
         if not lo < hi:
-            raise ValueError(f"fit_parameters()['{name}']: lower bound must be below upper bound")
+            raise ValueError(
+                f"fit_parameters()['{name}']: lower bound must be below upper bound"
+            )
         init = float(entry["init"])
         if not lo <= init <= hi:
             # Clamp init into the declared bounds rather than erroring.
@@ -966,8 +1054,8 @@ def _fit_law_parameters(
     import time
     from scipy.optimize import minimize
 
-    names  = [s[0] for s in fit_spec_list]
-    x0     = [s[1] for s in fit_spec_list]
+    names = [s[0] for s in fit_spec_list]
+    x0 = [s[1] for s in fit_spec_list]
     bounds = [s[2] for s in fit_spec_list]
 
     state = {
@@ -992,7 +1080,8 @@ def _fit_law_parameters(
 
     try:
         result = minimize(
-            _objective, x0,
+            _objective,
+            x0,
             method="L-BFGS-B",
             bounds=bounds,
             options={"maxiter": maxiter},
@@ -1044,8 +1133,10 @@ def _maybe_fit(
     if not fit_spec_list:
         return discovered_law, None
 
-    declared = {name: {"init": init, "bounds": list(bounds)}
-                for name, init, bounds in fit_spec_list}
+    declared = {
+        name: {"init": init, "bounds": list(bounds)}
+        for name, init, bounds in fit_spec_list
+    }
 
     init_kwargs = {name: init for name, init, _ in fit_spec_list}
     init_law = functools.partial(discovered_law, **init_kwargs)
@@ -1200,11 +1291,14 @@ class ExplanationJudge:
         prompt = _JUDGE_USER_TEMPLATE.format(
             ground_truth=optimal_explanation.strip(),
             student=agent_explanation.strip(),
-            rubric=(rubric.strip() if rubric and rubric.strip() else _GENERIC_SCORING_GUIDE),
+            rubric=(
+                rubric.strip() if rubric and rubric.strip() else _GENERIC_SCORING_GUIDE
+            ),
         )
 
         try:
             from scienceagent import llm_client
+
             reply = llm_client.complete(
                 model=self.judge_model,
                 messages=[{"role": "user", "content": prompt}],

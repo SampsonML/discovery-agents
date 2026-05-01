@@ -18,9 +18,9 @@ from scienceagent.evaluator import (
     _validate_fit_spec,
 )
 
-
 # -----------------------------------------------------------------------------
 # _compile_fit_parameters
+
 
 def test_compile_fit_parameters_present():
     source = """
@@ -51,18 +51,23 @@ def test_compile_fit_parameters_syntax_error_returns_none():
 # -----------------------------------------------------------------------------
 # _validate_fit_spec
 
+
 def test_validate_spec_accepts_well_formed():
-    spec = _validate_fit_spec({
-        "alpha": {"init": 0.5, "bounds": [0.1, 1.0]},
-        "D":     {"init": 1.0, "bounds": (0.01, 10.0)},
-    })
+    spec = _validate_fit_spec(
+        {
+            "alpha": {"init": 0.5, "bounds": [0.1, 1.0]},
+            "D": {"init": 1.0, "bounds": (0.01, 10.0)},
+        }
+    )
     assert len(spec) == 2
     names = [s[0] for s in spec]
     assert names == ["alpha", "D"]
 
 
 def test_validate_spec_rejects_too_many_params():
-    spec = {f"p{i}": {"init": 1.0, "bounds": [0, 2]} for i in range(MAX_FIT_PARAMETERS + 1)}
+    spec = {
+        f"p{i}": {"init": 1.0, "bounds": [0, 2]} for i in range(MAX_FIT_PARAMETERS + 1)
+    }
     with pytest.raises(ValueError, match="max allowed"):
         _validate_fit_spec(spec)
 
@@ -93,13 +98,18 @@ def test_validate_spec_rejects_non_dict():
 # -----------------------------------------------------------------------------
 # _extract_training_trajectories
 
+
 def test_extract_training_trajectories_filters_non_experiments():
     log = [
         {"action": "warning", "system_message": "ignore me"},
         {
             "action": "experiment",
-            "experiment_input": [{"p1": 1.0, "p2": 1.0, "pos2": [3, 0], "velocity2": [0, 0]}],
-            "experiment_output": [{"measurement_times": [1.0], "pos1": [[0, 0]], "pos2": [[2.5, 0]]}],
+            "experiment_input": [
+                {"p1": 1.0, "p2": 1.0, "pos2": [3, 0], "velocity2": [0, 0]}
+            ],
+            "experiment_output": [
+                {"measurement_times": [1.0], "pos1": [[0, 0]], "pos2": [[2.5, 0]]}
+            ],
         },
         {"action": "final_law", "final_law": "..."},
     ]
@@ -120,6 +130,7 @@ def test_extract_training_trajectories_handles_empty_log():
 # The agent submits a law with k as a free parameter initialised far from 0.3;
 # scipy.optimize should recover k within the maxiter=150 budget.
 
+
 def _make_training_set(k_true: float) -> list:
     samples = []
     for case in [
@@ -133,10 +144,12 @@ def _make_training_set(k_true: float) -> list:
         for t in times:
             p2_t = p2_start + k_true * t * (np.zeros(2) - p2_start)
             pos2_traj.append(p2_t.tolist())
-        samples.append({
-            "input": case,
-            "output": {"measurement_times": times, "pos2": pos2_traj},
-        })
+        samples.append(
+            {
+                "input": case,
+                "output": {"measurement_times": times, "pos2": pos2_traj},
+            }
+        )
     return samples
 
 
@@ -163,9 +176,7 @@ def test_fit_lowers_loss_vs_init():
     training = _make_training_set(k_true=0.3)
     import functools
 
-    init_loss = _two_particle_loss(
-        functools.partial(_linear_drag_law, k=1.0), training
-    )
+    init_loss = _two_particle_loss(functools.partial(_linear_drag_law, k=1.0), training)
     fitted = _fit_law_parameters(
         _linear_drag_law,
         [("k", 1.0, (0.01, 2.0))],
@@ -181,6 +192,7 @@ def test_fit_lowers_loss_vs_init():
 # -----------------------------------------------------------------------------
 # _maybe_fit: integration with law source strings
 
+
 def test_maybe_fit_returns_original_law_when_no_fit_parameters():
     source = """
 def discovered_law(pos1, pos2, p1, p2, velocity2, duration):
@@ -188,8 +200,11 @@ def discovered_law(pos1, pos2, p1, p2, velocity2, duration):
 """
     import functools
     from scienceagent.evaluator import _compile_law
+
     law = _compile_law(source)
-    bound, info = _maybe_fit(source, law, training_trajectories=[], loss_fn=_two_particle_loss, verbose=False)
+    bound, info = _maybe_fit(
+        source, law, training_trajectories=[], loss_fn=_two_particle_loss, verbose=False
+    )
     assert bound is law
     assert info is None
 
@@ -203,8 +218,11 @@ def fit_parameters():
     return {"k": {"init": 0.5, "bounds": [0, 2]}}
 """
     from scienceagent.evaluator import _compile_law
+
     law = _compile_law(source)
-    _, info = _maybe_fit(source, law, training_trajectories=[], loss_fn=_two_particle_loss, verbose=False)
+    _, info = _maybe_fit(
+        source, law, training_trajectories=[], loss_fn=_two_particle_loss, verbose=False
+    )
     assert info is not None
     assert info["error"] == "no_training_trajectories"
 
@@ -222,9 +240,16 @@ def fit_parameters():
     return {{{spec_entries}}}
 """
     from scienceagent.evaluator import _compile_law
+
     law = _compile_law(source)
     training = _make_training_set(0.3)
-    bound, info = _maybe_fit(source, law, training_trajectories=training, loss_fn=_two_particle_loss, verbose=False)
+    bound, info = _maybe_fit(
+        source,
+        law,
+        training_trajectories=training,
+        loss_fn=_two_particle_loss,
+        verbose=False,
+    )
     # Fitting was skipped because spec was invalid.
     assert bound is law
     assert info is not None
@@ -246,9 +271,16 @@ def fit_parameters():
     return {"k": {"init": 1.5, "bounds": [0.01, 2.0]}}
 """
     from scienceagent.evaluator import _compile_law
+
     law = _compile_law(source)
     training = _make_training_set(0.3)
-    _, info = _maybe_fit(source, law, training_trajectories=training, loss_fn=_two_particle_loss, verbose=False)
+    _, info = _maybe_fit(
+        source,
+        law,
+        training_trajectories=training,
+        loss_fn=_two_particle_loss,
+        verbose=False,
+    )
     assert info is not None
     assert info["error"] is None
     assert info["loss_after"] < info["loss_before"] / 10

@@ -44,7 +44,6 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-
 COLUMNS: tuple[str, ...] = (
     "run_id",
     "experiment_id",
@@ -98,7 +97,9 @@ class TrajectoryLogger:
             )
 
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
-        self._needs_header = not self.csv_path.exists() or self.csv_path.stat().st_size == 0
+        self._needs_header = (
+            not self.csv_path.exists() or self.csv_path.stat().st_size == 0
+        )
 
     def log_experiment(
         self,
@@ -137,6 +138,7 @@ class TrajectoryLogger:
 # Per-world row builders. Each takes (executor, exp_input, exp_output) and
 # returns a list of partially-populated row dicts (run-level fields are
 # filled in by the logger). Particle ids are 0-indexed.
+
 
 def _scalar_params(p1=None, p2=None, ring_radius=None, v_tang=None) -> dict:
     """Helper: pack the four nullable scalar columns."""
@@ -199,14 +201,18 @@ def _rows_circle(executor, exp_input, exp_output) -> list[dict]:
     n_ring = getattr(executor, "N_RING", 10)
     n_total = getattr(executor, "N_TOTAL", 11)
     angles = np.linspace(0.0, 2.0 * np.pi, n_ring, endpoint=False)
-    ring_pos = np.column_stack([
-        ring_radius * np.cos(angles),
-        ring_radius * np.sin(angles),
-    ])
-    ring_vel = np.column_stack([
-        -v_tang * np.sin(angles),
-         v_tang * np.cos(angles),
-    ])
+    ring_pos = np.column_stack(
+        [
+            ring_radius * np.cos(angles),
+            ring_radius * np.sin(angles),
+        ]
+    )
+    ring_vel = np.column_stack(
+        [
+            -v_tang * np.sin(angles),
+            v_tang * np.cos(angles),
+        ]
+    )
     init_positions = np.vstack([[[0.0, 0.0]], ring_pos])
     init_velocities = np.vstack([[[0.0, 0.0]], ring_vel])
 
@@ -322,13 +328,13 @@ def _rows_dark_matter(executor, exp_input, exp_output) -> list[dict]:
 
 
 _RowBuilders = {
-    "gravity":       _rows_two_particle,
-    "yukawa":        _rows_two_particle,
-    "fractional":    _rows_two_particle,
-    "diffusion":     _rows_two_particle,
-    "wave":          _rows_two_particle,
-    "circle":        _rows_circle,
-    "species":       _rows_species,
+    "gravity": _rows_two_particle,
+    "yukawa": _rows_two_particle,
+    "fractional": _rows_two_particle,
+    "diffusion": _rows_two_particle,
+    "wave": _rows_two_particle,
+    "circle": _rows_circle,
+    "species": _rows_species,
     "three_species": _rows_three_species,
-    "dark_matter":   _rows_dark_matter,
+    "dark_matter": _rows_dark_matter,
 }

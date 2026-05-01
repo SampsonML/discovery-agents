@@ -38,7 +38,6 @@ from typing import Iterable, Optional, Sequence
 
 import numpy as np
 
-
 # Scalar params that may appear as columns. Only the populated ones are
 # attached to each experiment's `params` dict.
 _PARAM_COLUMNS: tuple[str, ...] = (
@@ -128,6 +127,7 @@ def load_trajectories(
 # ---------------------------------------------------------------------------
 # Internals.
 
+
 def _resolve_path(world_or_path: str | os.PathLike) -> Path:
     path = Path(world_or_path)
     if path.suffix == ".csv" or path.exists():
@@ -212,6 +212,7 @@ def _build_experiment(experiment_id: str, rows: list[dict]) -> ExperimentTraject
 # ---------------------------------------------------------------------------
 # CLI: `python -m scienceagent.load_trajectories <world> [--run-id ...]`
 
+
 def _summarise(experiments: list[ExperimentTrajectory]) -> str:
     if not experiments:
         return "(no experiments loaded)"
@@ -249,10 +250,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "world",
         help="World name (resolves to results/trajectories/<world>.csv) "
-             "or an explicit path to a CSV file.",
+        "or an explicit path to a CSV file.",
     )
     parser.add_argument(
-        "--run-id", action="append", default=None,
+        "--run-id",
+        action="append",
+        default=None,
         help="Filter to one or more run_ids (repeatable).",
     )
     args = parser.parse_args(argv)

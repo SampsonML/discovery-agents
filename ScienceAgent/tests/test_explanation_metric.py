@@ -17,9 +17,9 @@ def test_each_world_defines_optimal_explanation(name):
     entry = WORLDS[name]
     assert "optimal_explanation" in entry, f"{name} missing optimal_explanation"
     text = entry["optimal_explanation"]
-    assert isinstance(text, str) and len(text.strip()) > 50, (
-        f"{name} optimal_explanation should be a non-trivial prose string"
-    )
+    assert (
+        isinstance(text, str) and len(text.strip()) > 50
+    ), f"{name} optimal_explanation should be a non-trivial prose string"
 
 
 @pytest.mark.parametrize("name", list(WORLDS.keys()))
@@ -27,9 +27,9 @@ def test_each_world_defines_explanation_rubric(name):
     entry = WORLDS[name]
     assert "explanation_rubric" in entry, f"{name} missing explanation_rubric"
     text = entry["explanation_rubric"]
-    assert isinstance(text, str) and len(text.strip()) > 100, (
-        f"{name} explanation_rubric should be a non-trivial multi-band rubric"
-    )
+    assert (
+        isinstance(text, str) and len(text.strip()) > 100
+    ), f"{name} explanation_rubric should be a non-trivial multi-band rubric"
     # Sanity: rubric should mention each of the expected score bands.
     for band in ("10", "7", "4", "1", "0"):
         assert band in text, f"{name} rubric missing band marker '{band}'"

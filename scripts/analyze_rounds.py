@@ -74,8 +74,11 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--summary", required=True)
     p.add_argument("--out-dir", required=True)
-    p.add_argument("--fname", default="rounds_vs_metrics.png",
-                   help="Output filename for the main plot.")
+    p.add_argument(
+        "--fname",
+        default="rounds_vs_metrics.png",
+        help="Output filename for the main plot.",
+    )
     args = p.parse_args()
 
     rows = load(args.summary)
@@ -87,7 +90,13 @@ def main():
     # Always render all five benchmark worlds (difficulty order), even if
     # some have no completed runs yet — a missing row will show "(no data)".
     # Any extra worlds that appear in the summary are appended after.
-    _BENCHMARK_WORLDS = ["gravity", "yukawa", "fractional", "dark_matter", "three_species"]
+    _BENCHMARK_WORLDS = [
+        "gravity",
+        "yukawa",
+        "fractional",
+        "dark_matter",
+        "three_species",
+    ]
     world_order = list(_BENCHMARK_WORLDS)
     seen = set(world_order)
     for r in rows:
@@ -100,8 +109,7 @@ def main():
     # (even if some haven't run yet); union in any extras actually observed.
     _BENCHMARK_ROUNDS = [1, 2, 4, 8, 16, 32]
     observed_rounds = {
-        int(r["max_rounds"]) for r in rows
-        if r.get("max_rounds") is not None
+        int(r["max_rounds"]) for r in rows if r.get("max_rounds") is not None
     }
     rounds_set = sorted(set(_BENCHMARK_ROUNDS) | observed_rounds)
 
@@ -121,13 +129,21 @@ def main():
         "| world | rounds | n | MSE (geomean, ×/gsd) | explanation (mean±std) | pass rate |",
         "|---|---|---|---|---|---|",
     ]
-    csv_rows = [[
-        "world", "max_rounds", "n",
-        "mean_pos_error_geomean", "mean_pos_error_gsd_lo", "mean_pos_error_gsd_hi",
-        "mean_pos_error_arith_mean", "mean_pos_error_arith_std",
-        "explanation_score_mean", "explanation_score_std",
-        "pass_rate",
-    ]]
+    csv_rows = [
+        [
+            "world",
+            "max_rounds",
+            "n",
+            "mean_pos_error_geomean",
+            "mean_pos_error_gsd_lo",
+            "mean_pos_error_gsd_hi",
+            "mean_pos_error_arith_mean",
+            "mean_pos_error_arith_std",
+            "explanation_score_mean",
+            "explanation_score_std",
+            "pass_rate",
+        ]
+    ]
 
     def _sort_key(k):
         world, rnd = k
@@ -141,8 +157,8 @@ def main():
         world, rnd = key
         grp = groups[key]
         mse_gm, mse_err, _ = geomean_agg([r["mean_pos_error"] for r in grp])
-        mse_m,  mse_s, _   = agg([r["mean_pos_error"] for r in grp])
-        exp_m,  exp_s, _   = agg([r["explanation_score"] for r in grp])
+        mse_m, mse_s, _ = agg([r["mean_pos_error"] for r in grp])
+        exp_m, exp_s, _ = agg([r["explanation_score"] for r in grp])
         passed = [1.0 if r.get("passed") else 0.0 for r in grp]
         pass_rate = mean(passed) if passed else 0.0
 
@@ -157,13 +173,21 @@ def main():
             f"| {world} | {rnd} | {len(grp)} | {mse_str} | {exp_str} | {pass_rate:.2f} |"
         )
         lo, hi = mse_err if mse_err is not None else (None, None)
-        csv_rows.append([
-            world, rnd, len(grp),
-            mse_gm, lo, hi,
-            mse_m, mse_s,
-            exp_m, exp_s,
-            pass_rate,
-        ])
+        csv_rows.append(
+            [
+                world,
+                rnd,
+                len(grp),
+                mse_gm,
+                lo,
+                hi,
+                mse_m,
+                mse_s,
+                exp_m,
+                exp_s,
+                pass_rate,
+            ]
+        )
 
     with open(md_path, "w") as f:
         f.write("\n".join(md_lines) + "\n")
@@ -185,8 +209,14 @@ def main():
 
     # Hand-picked pastel palette (matches aggregate_bench.py).
     palette = [
-        "#8FB5C7", "#A8D5BA", "#F4B6C2", "#F5CBA7",
-        "#AECDE0", "#E8D5A0", "#D4A5A5", "#C5E1C5",
+        "#8FB5C7",
+        "#A8D5BA",
+        "#F4B6C2",
+        "#F5CBA7",
+        "#AECDE0",
+        "#E8D5A0",
+        "#D4A5A5",
+        "#C5E1C5",
     ]
 
     world_display = {"dark_matter": "dark matter", "three_species": "multi species"}
@@ -224,7 +254,8 @@ def main():
     # matches the "physics difficulty" ladder used throughout the repo.
     n_worlds = len(world_order)
     fig, axes = plt.subplots(
-        n_worlds, 2,
+        n_worlds,
+        2,
         figsize=(11, 2.6 * n_worlds + 1.2),
         sharex=True,
         squeeze=False,
@@ -239,19 +270,39 @@ def main():
         rnds, em, es, gm, lo, hi = _series_for_world(world)
         if len(rnds):
             ax_exp.errorbar(
-                rnds, em, yerr=es,
-                marker="o", linestyle="-", color=color,
-                capsize=3, linewidth=1.8, alpha=0.95,
+                rnds,
+                em,
+                yerr=es,
+                marker="o",
+                linestyle="-",
+                color=color,
+                capsize=3,
+                linewidth=1.8,
+                alpha=0.95,
             )
             ax_mse.errorbar(
-                rnds, gm, yerr=np.vstack([lo, hi]),
-                marker="o", linestyle="-", color=color,
-                capsize=3, linewidth=1.8, alpha=0.95,
+                rnds,
+                gm,
+                yerr=np.vstack([lo, hi]),
+                marker="o",
+                linestyle="-",
+                color=color,
+                capsize=3,
+                linewidth=1.8,
+                alpha=0.95,
             )
         else:
             for ax in (ax_exp, ax_mse):
-                ax.text(0.5, 0.5, "(no data)", transform=ax.transAxes,
-                        ha="center", va="center", color="gray", fontsize=10)
+                ax.text(
+                    0.5,
+                    0.5,
+                    "(no data)",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="center",
+                    color="gray",
+                    fontsize=10,
+                )
 
         # World label sits centered above both column subplots.
         ax_exp.set_title(display, fontsize=16, loc="center", pad=6)
@@ -264,8 +315,9 @@ def main():
 
         for ax in (ax_exp, ax_mse):
             ax.grid(True, alpha=0.3)
-            ax.tick_params(direction="in", which="both", top=True, right=True,
-                           labelsize=11)
+            ax.tick_params(
+                direction="in", which="both", top=True, right=True, labelsize=11
+            )
 
     # Shared x-axis styling: log2 ticks at the swept round budgets, labels
     # only on the bottom row.
@@ -285,22 +337,32 @@ def main():
     # arrow treatment but rotated 90° since rows (not columns) are now
     # the difficulty axis.
     from matplotlib.patches import FancyArrowPatch
-    top_bbox    = axes[0, 0].get_position()
+
+    top_bbox = axes[0, 0].get_position()
     bottom_bbox = axes[-1, 0].get_position()
-    arrow_x     = max(0.02, top_bbox.x0 - 0.10)
-    y_top       = top_bbox.y1
-    y_bottom    = bottom_bbox.y0
+    arrow_x = max(0.02, top_bbox.x0 - 0.10)
+    y_top = top_bbox.y1
+    y_bottom = bottom_bbox.y0
     arrow = FancyArrowPatch(
-        (arrow_x, y_top), (arrow_x, y_bottom),
+        (arrow_x, y_top),
+        (arrow_x, y_bottom),
         transform=fig.transFigure,
-        arrowstyle="-|>", mutation_scale=25,
-        color="black", linewidth=2,
+        arrowstyle="-|>",
+        mutation_scale=25,
+        color="black",
+        linewidth=2,
     )
     fig.patches.append(arrow)
     fig.text(
-        arrow_x, (y_top + y_bottom) / 2, "physics difficulty",
-        ha="center", va="center", rotation=90,
-        color="black", fontsize=16, style="italic",
+        arrow_x,
+        (y_top + y_bottom) / 2,
+        "physics difficulty",
+        ha="center",
+        va="center",
+        rotation=90,
+        color="black",
+        fontsize=16,
+        style="italic",
         bbox=dict(facecolor=fig.get_facecolor(), edgecolor="none", pad=4),
     )
 

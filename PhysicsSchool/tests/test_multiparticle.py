@@ -24,7 +24,6 @@ from physchool.env import (
 )
 from physchool.worlds.field_sampler import FieldSampler
 
-
 POISSON_OPS = [{"type": "laplacian", "params": {"strength": 1.0}}]
 
 
@@ -136,9 +135,9 @@ class TestMultiParticleMomentum:
 
         dp = np.linalg.norm(p1 - p0)
         p_scale = max(np.linalg.norm(p0), 1e-10)
-        assert dp / p_scale < 0.05, (
-            f"Momentum drift {dp / p_scale:.4f} too large for {n_particles} particles"
-        )
+        assert (
+            dp / p_scale < 0.05
+        ), f"Momentum drift {dp / p_scale:.4f} too large for {n_particles} particles"
 
 
 # ── Superposition / force additivity ───────────────────────────────────
@@ -202,12 +201,12 @@ class TestSuperposition:
         )
         mag_ratio = np.linalg.norm(f_012) / (np.linalg.norm(f_sum) + 1e-15)
 
-        assert cos_angle > 0.95, (
-            f"Force directions disagree: cos(angle) = {cos_angle:.4f}"
-        )
-        assert 0.7 < mag_ratio < 1.3, (
-            f"Force magnitudes disagree: ratio = {mag_ratio:.4f}"
-        )
+        assert (
+            cos_angle > 0.95
+        ), f"Force directions disagree: cos(angle) = {cos_angle:.4f}"
+        assert (
+            0.7 < mag_ratio < 1.3
+        ), f"Force magnitudes disagree: ratio = {mag_ratio:.4f}"
 
 
 # ── Consistency: isolated pairs ─────────────────────────────────────────
@@ -229,12 +228,14 @@ class TestIsolatedPairs:
         pair_b_center = np.array([15.0, 0.0])
         half = sep / 2
 
-        pos_4body = np.array([
-            pair_a_center + [-half, 0],
-            pair_a_center + [half, 0],
-            pair_b_center + [-half, 0],
-            pair_b_center + [half, 0],
-        ])
+        pos_4body = np.array(
+            [
+                pair_a_center + [-half, 0],
+                pair_a_center + [half, 0],
+                pair_b_center + [-half, 0],
+                pair_b_center + [half, 0],
+            ]
+        )
         vel_4body = np.zeros((4, 2))
         masses_4body = np.ones(4)
 
@@ -243,7 +244,11 @@ class TestIsolatedPairs:
 
         exp_4 = {
             "particles": [
-                {"property": 1.0, "position": pos_4body[i].tolist(), "velocity": [0.0, 0.0]}
+                {
+                    "property": 1.0,
+                    "position": pos_4body[i].tolist(),
+                    "velocity": [0.0, 0.0],
+                }
                 for i in range(4)
             ],
             "duration": duration,
@@ -254,7 +259,11 @@ class TestIsolatedPairs:
 
         exp_a = {
             "particles": [
-                {"property": 1.0, "position": pos_4body[i].tolist(), "velocity": [0.0, 0.0]}
+                {
+                    "property": 1.0,
+                    "position": pos_4body[i].tolist(),
+                    "velocity": [0.0, 0.0],
+                }
                 for i in [0, 1]
             ],
             "duration": duration,
@@ -289,7 +298,11 @@ class TestNBodyInfall:
 
         exp = {
             "particles": [
-                {"property": 1.0, "position": positions[i].tolist(), "velocity": [0.0, 0.0]}
+                {
+                    "property": 1.0,
+                    "position": positions[i].tolist(),
+                    "velocity": [0.0, 0.0],
+                }
                 for i in range(n_particles)
             ],
             "duration": 1.0,
@@ -299,7 +312,9 @@ class TestNBodyInfall:
         assert "error" not in result
 
         initial_radii = np.linalg.norm(positions, axis=1)
-        final_positions = np.array([result["positions"][i][-1] for i in range(n_particles)])
+        final_positions = np.array(
+            [result["positions"][i][-1] for i in range(n_particles)]
+        )
         final_radii = np.linalg.norm(final_positions, axis=1)
 
         for i in range(n_particles):
@@ -346,12 +361,19 @@ class TestEnergyConservation:
         )
 
         def kinetic_energy():
-            return 0.5 * np.sum(masses[:, None] * sim.velocities ** 2)
+            return 0.5 * np.sum(masses[:, None] * sim.velocities**2)
 
         def potential_energy():
-            return 0.5 * float(jnp.sum(sim.field * jnp.fft.ifftn(
-                jnp.fft.fftn(sim.field) * sim._L_k
-            ).real)) * (sim.dx ** 2)
+            return (
+                0.5
+                * float(
+                    jnp.sum(
+                        sim.field
+                        * jnp.fft.ifftn(jnp.fft.fftn(sim.field) * sim._L_k).real
+                    )
+                )
+                * (sim.dx**2)
+            )
 
         energies = []
         n_steps = 200
@@ -380,15 +402,31 @@ class TestEnvWrapper:
         world = make_world()
         env = PhysicsSchoolEnv(world)
 
-        experiment_json = json.dumps([{
-            "particles": [
-                {"property": 1.0, "position": [0.0, 0.0], "velocity": [0.0, 0.0]},
-                {"property": 1.0, "position": [3.0, 0.0], "velocity": [0.0, 0.5]},
-                {"property": 2.0, "position": [-2.0, 1.0], "velocity": [0.1, -0.1]},
-            ],
-            "duration": 1.0,
-            "measurement_times": [0.0, 0.5, 1.0],
-        }])
+        experiment_json = json.dumps(
+            [
+                {
+                    "particles": [
+                        {
+                            "property": 1.0,
+                            "position": [0.0, 0.0],
+                            "velocity": [0.0, 0.0],
+                        },
+                        {
+                            "property": 1.0,
+                            "position": [3.0, 0.0],
+                            "velocity": [0.0, 0.5],
+                        },
+                        {
+                            "property": 2.0,
+                            "position": [-2.0, 1.0],
+                            "velocity": [0.1, -0.1],
+                        },
+                    ],
+                    "duration": 1.0,
+                    "measurement_times": [0.0, 0.5, 1.0],
+                }
+            ]
+        )
 
         agent_msg = f"<run_experiment>\n{experiment_json}\n</run_experiment>"
         response = env.process_action(agent_msg)
@@ -397,7 +435,9 @@ class TestEnvWrapper:
         assert env.round == 1
         assert not env.is_done
 
-        output_json = response.split("<experiment_output>")[1].split("</experiment_output>")[0]
+        output_json = response.split("<experiment_output>")[1].split(
+            "</experiment_output>"
+        )[0]
         results = json.loads(output_json)
         assert len(results) == 1
         assert len(results[0]["positions"]) == 3
@@ -429,33 +469,57 @@ class TestEnvWrapper:
         agent_msg = f"<run_experiment>\n{json.dumps(experiments)}\n</run_experiment>"
         response = env.process_action(agent_msg)
 
-        output_json = response.split("<experiment_output>")[1].split("</experiment_output>")[0]
+        output_json = response.split("<experiment_output>")[1].split(
+            "</experiment_output>"
+        )[0]
         results = json.loads(output_json)
         assert len(results) == 2
         assert env.round == 1  # both experiments count as one round
 
     def test_parse_rejects_bad_input(self):
         with pytest.raises(ValueError, match="at least 2"):
-            _parse_experiment_request(json.dumps([{
-                "particles": [
-                    {"property": 1.0, "position": [0.0, 0.0], "velocity": [0.0, 0.0]},
-                ],
-                "duration": 1.0,
-                "measurement_times": [0.0],
-            }]))
+            _parse_experiment_request(
+                json.dumps(
+                    [
+                        {
+                            "particles": [
+                                {
+                                    "property": 1.0,
+                                    "position": [0.0, 0.0],
+                                    "velocity": [0.0, 0.0],
+                                },
+                            ],
+                            "duration": 1.0,
+                            "measurement_times": [0.0],
+                        }
+                    ]
+                )
+            )
 
     def test_round_limit_enforced(self):
         world = make_world()
         env = PhysicsSchoolEnv(world, max_rounds=1)
 
-        exp = json.dumps([{
-            "particles": [
-                {"property": 1.0, "position": [0.0, 0.0], "velocity": [0.0, 0.0]},
-                {"property": 1.0, "position": [3.0, 0.0], "velocity": [0.0, 0.0]},
-            ],
-            "duration": 0.1,
-            "measurement_times": [0.0, 0.1],
-        }])
+        exp = json.dumps(
+            [
+                {
+                    "particles": [
+                        {
+                            "property": 1.0,
+                            "position": [0.0, 0.0],
+                            "velocity": [0.0, 0.0],
+                        },
+                        {
+                            "property": 1.0,
+                            "position": [3.0, 0.0],
+                            "velocity": [0.0, 0.0],
+                        },
+                    ],
+                    "duration": 0.1,
+                    "measurement_times": [0.0, 0.1],
+                }
+            ]
+        )
 
         env.process_action(f"<run_experiment>\n{exp}\n</run_experiment>")
         assert env.round == 1
@@ -467,14 +531,14 @@ class TestEnvWrapper:
         world = make_world()
         env = PhysicsSchoolEnv(world)
 
-        code = '''
+        code = """
 def discovered_law(positions, velocities, properties, duration, measurement_times):
     import numpy as np
     n = len(positions)
     result_pos = [[list(positions[i]) for _ in measurement_times] for i in range(n)]
     result_vel = [[list(velocities[i]) for _ in measurement_times] for i in range(n)]
     return result_pos, result_vel
-'''
+"""
         agent_msg = f"<final_law>\n{code}\n</final_law>"
         response = env.process_action(agent_msg)
 

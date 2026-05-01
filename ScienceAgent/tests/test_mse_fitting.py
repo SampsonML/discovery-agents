@@ -20,9 +20,9 @@ from scienceagent.trajectory_logger import TrajectoryLogger, make_run_id
 from scienceagent.mse_fitting import fit_law
 from scienceagent.agent import DiscoveryAgent
 
-
 # ---------------------------------------------------------------------------
 # Test fixtures: write a small CSV before each fit-machinery test.
+
 
 @pytest.fixture
 def gravity_csv(tmp_path):
@@ -35,8 +35,10 @@ def gravity_csv(tmp_path):
     run_id = make_run_id("test")
     logger = TrajectoryLogger("gravity", executor, csv_path, run_id)
     exp_input = {
-        "p1": 1.0, "p2": 1.0,
-        "pos2": [3.0, 0.0], "velocity2": [0.0, 0.0],
+        "p1": 1.0,
+        "p2": 1.0,
+        "pos2": [3.0, 0.0],
+        "velocity2": [0.0, 0.0],
         "measurement_times": [0.5, 1.0, 1.5, 2.0],
     }
     [out] = executor.run([exp_input])
@@ -115,6 +117,7 @@ def test_fit_without_fit_parameters_reports_loss(gravity_csv):
 # ---------------------------------------------------------------------------
 # Compile / spec / world / data error paths.
 
+
 def test_fit_compile_error(gravity_csv):
     csv_path, run_id = gravity_csv
     result = fit_law("not python at all !!!", "gravity", csv_path, run_id)
@@ -138,23 +141,26 @@ def fit_parameters():
 
 def test_fit_unsupported_world(tmp_path):
     # `species` is the one structural world we do NOT (yet) support fitting for.
-    result = fit_law(_LAW_NO_FIT, "species", csv_path=tmp_path / "species.csv",
-                     run_id="r1")
+    result = fit_law(
+        _LAW_NO_FIT, "species", csv_path=tmp_path / "species.csv", run_id="r1"
+    )
     assert result["error"] is not None
     assert "no continuous parameters" in result["error"]
 
 
 def test_fit_missing_csv(tmp_path):
-    result = fit_law(_LAW_NO_FIT, "gravity",
-                     csv_path=tmp_path / "missing.csv", run_id="r1")
+    result = fit_law(
+        _LAW_NO_FIT, "gravity", csv_path=tmp_path / "missing.csv", run_id="r1"
+    )
     assert result["error"] is not None
     assert "not found" in result["error"]
 
 
 def test_fit_unknown_run_id(gravity_csv):
     csv_path, _ = gravity_csv
-    result = fit_law(_LAW_NO_FIT, "gravity", csv_path=csv_path,
-                     run_id="nonexistent-run-id")
+    result = fit_law(
+        _LAW_NO_FIT, "gravity", csv_path=csv_path, run_id="nonexistent-run-id"
+    )
     assert result["error"] is not None
     assert "no training trajectories" in result["error"]
 
@@ -178,6 +184,7 @@ def test_circle_world_uses_circle_loss(circle_csv):
 # ---------------------------------------------------------------------------
 # Three-species world (35 particles, full-state scoring).
 
+
 @pytest.fixture
 def three_species_csv(tmp_path):
     executor = ThreeSpeciesExecutor()
@@ -185,7 +192,7 @@ def three_species_csv(tmp_path):
     run_id = make_run_id("test")
     logger = TrajectoryLogger("three_species", executor, csv_path, run_id)
     exp_input = {
-        "probe_positions":  [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
+        "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
         "probe_velocities": [[0, 0]] * 5,
         "measurement_times": [0.5, 1.0],
     }
@@ -212,8 +219,9 @@ def fit_parameters():
 
 def test_three_species_loss_no_fit(three_species_csv):
     csv_path, run_id = three_species_csv
-    result = fit_law(_THREE_SPECIES_LAW_NO_FIT, "three_species",
-                     csv_path=csv_path, run_id=run_id)
+    result = fit_law(
+        _THREE_SPECIES_LAW_NO_FIT, "three_species", csv_path=csv_path, run_id=run_id
+    )
     assert result["error"] is None
     assert result["loss_before"] is not None
     assert result["loss_before"] == result["loss_after"]
@@ -222,8 +230,9 @@ def test_three_species_loss_no_fit(three_species_csv):
 
 def test_three_species_fit_runs(three_species_csv):
     csv_path, run_id = three_species_csv
-    result = fit_law(_THREE_SPECIES_LAW_WITH_FIT, "three_species",
-                     csv_path=csv_path, run_id=run_id)
+    result = fit_law(
+        _THREE_SPECIES_LAW_WITH_FIT, "three_species", csv_path=csv_path, run_id=run_id
+    )
     assert result["error"] is None
     assert "drift" in result["fitted_params"]
     assert result["loss_after"] <= result["loss_before"] + 1e-9
@@ -232,6 +241,7 @@ def test_three_species_fit_runs(three_species_csv):
 # ---------------------------------------------------------------------------
 # Dark-matter world (25 particles, scoring on probes 20-24 only).
 
+
 @pytest.fixture
 def dark_matter_csv(tmp_path):
     executor = DarkMatterExecutor()
@@ -239,7 +249,7 @@ def dark_matter_csv(tmp_path):
     run_id = make_run_id("test")
     logger = TrajectoryLogger("dark_matter", executor, csv_path, run_id)
     exp_input = {
-        "probe_positions":  [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
+        "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
         "probe_velocities": [[0, 0]] * 5,
         "measurement_times": [1.0, 2.0],
     }
@@ -270,8 +280,9 @@ def discovered_law(positions, velocities, duration, **params):
 
 def test_dark_matter_loss_no_fit(dark_matter_csv):
     csv_path, run_id = dark_matter_csv
-    result = fit_law(_DARK_MATTER_LAW_NO_FIT, "dark_matter",
-                     csv_path=csv_path, run_id=run_id)
+    result = fit_law(
+        _DARK_MATTER_LAW_NO_FIT, "dark_matter", csv_path=csv_path, run_id=run_id
+    )
     assert result["error"] is None
     assert result["loss_before"] is not None
     assert result["loss_before"] == result["loss_after"]
@@ -282,10 +293,12 @@ def test_dark_matter_loss_scores_probes_only(dark_matter_csv):
     must score IDENTICALLY to a law that predicts both correctly. This
     pins down the probe-only convention used by DarkMatterEvaluator."""
     csv_path, run_id = dark_matter_csv
-    baseline = fit_law(_DARK_MATTER_LAW_NO_FIT, "dark_matter",
-                       csv_path=csv_path, run_id=run_id)
-    offset = fit_law(_DARK_MATTER_LAW_VISIBLE_OFFSET, "dark_matter",
-                     csv_path=csv_path, run_id=run_id)
+    baseline = fit_law(
+        _DARK_MATTER_LAW_NO_FIT, "dark_matter", csv_path=csv_path, run_id=run_id
+    )
+    offset = fit_law(
+        _DARK_MATTER_LAW_VISIBLE_OFFSET, "dark_matter", csv_path=csv_path, run_id=run_id
+    )
     assert baseline["error"] is None and offset["error"] is None
     assert baseline["loss_before"] == pytest.approx(offset["loss_before"])
 
@@ -320,6 +333,7 @@ def discovered_law(positions, velocities, duration, **params):
 # End-to-end: a mocked LLM emits <run_experiment> + <run_mse_fit> in the
 # same response and DiscoveryAgent threads both through.
 
+
 def test_agent_handles_run_mse_fit_alongside_experiment(tmp_path):
     executor = SimulationExecutor(
         operators=[{"type": "laplacian", "params": {"strength": 1.0}}],
@@ -336,9 +350,7 @@ def test_agent_handles_run_mse_fit_alongside_experiment(tmp_path):
                 '<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
                 '"velocity2": [0.0, 0.0], "measurement_times": [0.5, 1.0]}]'
                 "</run_experiment>\n"
-                "<run_mse_fit>\n"
-                + _LAW_WITH_FIT
-                + "</run_mse_fit>"
+                "<run_mse_fit>\n" + _LAW_WITH_FIT + "</run_mse_fit>"
             )
         if n == 1:
             return (
@@ -390,18 +402,26 @@ def test_agent_rejects_response_with_no_recognized_tag(tmp_path):
     run_id = make_run_id("warn")
     logger = TrajectoryLogger("gravity", executor, csv_path, run_id)
 
-    replies = iter([
-        "I am thinking. No tag here.",
-        ('<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
-         '"velocity2": [0.0, 0.0], "measurement_times": [0.5]}]</run_experiment>'),
-        ('<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
-         '"velocity2": [0.0, 0.0], "measurement_times": [0.5]}]</run_experiment>'),
-        ("<final_law>\n"
-         "def discovered_law(pos1, pos2, p1, p2, velocity2, duration, **params):\n"
-         "    return list(pos2), [0.0, 0.0]\n"
-         "</final_law>\n"
-         "<explanation>placeholder</explanation>"),
-    ])
+    replies = iter(
+        [
+            "I am thinking. No tag here.",
+            (
+                '<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
+                '"velocity2": [0.0, 0.0], "measurement_times": [0.5]}]</run_experiment>'
+            ),
+            (
+                '<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
+                '"velocity2": [0.0, 0.0], "measurement_times": [0.5]}]</run_experiment>'
+            ),
+            (
+                "<final_law>\n"
+                "def discovered_law(pos1, pos2, p1, p2, velocity2, duration, **params):\n"
+                "    return list(pos2), [0.0, 0.0]\n"
+                "</final_law>\n"
+                "<explanation>placeholder</explanation>"
+            ),
+        ]
+    )
 
     def fake_complete(model, messages, system, max_tokens):
         return next(replies)

@@ -27,8 +27,9 @@ from scienceagent.load_trajectories import (
 )
 
 
-def _log(world, executor, exp_input, csv_path, run_id, round_num=1, exp_idx=0,
-         source="agent"):
+def _log(
+    world, executor, exp_input, csv_path, run_id, round_num=1, exp_idx=0, source="agent"
+):
     logger = TrajectoryLogger(world, executor, csv_path, run_id)
     [out] = executor.run([exp_input])
     logger.log_experiment(round_num, source, exp_input, out, exp_idx_in_round=exp_idx)
@@ -45,8 +46,10 @@ def test_two_particle_roundtrip(tmp_path):
     csv_path = tmp_path / "gravity.csv"
     run_id = make_run_id("rt-gravity")
     exp_input = {
-        "p1": 1.5, "p2": 2.0,
-        "pos2": [3.0, -1.0], "velocity2": [0.1, 0.2],
+        "p1": 1.5,
+        "p2": 2.0,
+        "pos2": [3.0, -1.0],
+        "velocity2": [0.1, 0.2],
         "measurement_times": [0.5, 1.0, 1.5],
     }
     _log("gravity", executor, exp_input, csv_path, run_id)
@@ -83,11 +86,17 @@ def test_circle_roundtrip(tmp_path):
     executor = CircleExecutor()
     csv_path = tmp_path / "circle.csv"
     run_id = make_run_id("rt-circle")
-    _log("circle", executor, {
-        "ring_radius": 5.0,
-        "initial_tangential_velocity": 0.3,
-        "measurement_times": [0.5, 1.0],
-    }, csv_path, run_id)
+    _log(
+        "circle",
+        executor,
+        {
+            "ring_radius": 5.0,
+            "initial_tangential_velocity": 0.3,
+            "measurement_times": [0.5, 1.0],
+        },
+        csv_path,
+        run_id,
+    )
 
     [exp] = load_trajectories(csv_path)
     assert exp.positions.shape == (3, 11, 2)
@@ -104,11 +113,17 @@ def test_three_species_roundtrip(tmp_path):
     executor = ThreeSpeciesExecutor()
     csv_path = tmp_path / "three_species.csv"
     run_id = make_run_id("rt-3sp")
-    _log("three_species", executor, {
-        "probe_positions":  [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
-        "probe_velocities": [[0, 0]] * 5,
-        "measurement_times": [0.5, 1.0],
-    }, csv_path, run_id)
+    _log(
+        "three_species",
+        executor,
+        {
+            "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
+            "probe_velocities": [[0, 0]] * 5,
+            "measurement_times": [0.5, 1.0],
+        },
+        csv_path,
+        run_id,
+    )
 
     [exp] = load_trajectories(csv_path)
     assert exp.positions.shape == (3, 35, 2)
@@ -125,11 +140,17 @@ def test_dark_matter_roundtrip(tmp_path):
     executor = DarkMatterExecutor()
     csv_path = tmp_path / "dark_matter.csv"
     run_id = make_run_id("rt-dm")
-    _log("dark_matter", executor, {
-        "probe_positions":  [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
-        "probe_velocities": [[0, 0]] * 5,
-        "measurement_times": [1.0],
-    }, csv_path, run_id)
+    _log(
+        "dark_matter",
+        executor,
+        {
+            "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
+            "probe_velocities": [[0, 0]] * 5,
+            "measurement_times": [1.0],
+        },
+        csv_path,
+        run_id,
+    )
 
     [exp] = load_trajectories(csv_path)
     assert exp.positions.shape == (2, 25, 2)
@@ -148,9 +169,13 @@ def test_multiple_experiments_and_run_id_filter(tmp_path):
         temporal_order=0,
     )
     csv_path = tmp_path / "gravity.csv"
-    base = {"p1": 1.0, "p2": 1.0,
-            "pos2": [3.0, 0.0], "velocity2": [0.0, 0.0],
-            "measurement_times": [0.5]}
+    base = {
+        "p1": 1.0,
+        "p2": 1.0,
+        "pos2": [3.0, 0.0],
+        "velocity2": [0.0, 0.0],
+        "measurement_times": [0.5],
+    }
 
     run_id_a = make_run_id("run-a")
     _log("gravity", executor, base, csv_path, run_id_a, round_num=1)
@@ -189,11 +214,19 @@ def test_world_name_resolution(tmp_path, monkeypatch):
         temporal_order=0,
     )
     run_id = make_run_id("rt-resolve")
-    _log("gravity", executor, {
-        "p1": 1.0, "p2": 1.0,
-        "pos2": [3.0, 0.0], "velocity2": [0.0, 0.0],
-        "measurement_times": [0.5],
-    }, target, run_id)
+    _log(
+        "gravity",
+        executor,
+        {
+            "p1": 1.0,
+            "p2": 1.0,
+            "pos2": [3.0, 0.0],
+            "velocity2": [0.0, 0.0],
+            "measurement_times": [0.5],
+        },
+        target,
+        run_id,
+    )
 
     exps = load_trajectories("gravity")
     assert len(exps) == 1
@@ -217,11 +250,19 @@ def test_mse_fit_consumability(tmp_path):
     )
     csv_path = tmp_path / "gravity.csv"
     run_id = make_run_id("rt-mse")
-    _log("gravity", executor, {
-        "p1": 1.0, "p2": 1.0,
-        "pos2": [3.0, 0.0], "velocity2": [0.0, 0.0],
-        "measurement_times": [0.5, 1.0, 1.5],
-    }, csv_path, run_id)
+    _log(
+        "gravity",
+        executor,
+        {
+            "p1": 1.0,
+            "p2": 1.0,
+            "pos2": [3.0, 0.0],
+            "velocity2": [0.0, 0.0],
+            "measurement_times": [0.5, 1.0, 1.5],
+        },
+        csv_path,
+        run_id,
+    )
 
     [exp] = load_trajectories(csv_path)
 
@@ -230,8 +271,9 @@ def test_mse_fit_consumability(tmp_path):
         T = len(times)
         return np.broadcast_to(initial_positions, (T, *initial_positions.shape)).copy()
 
-    pred = stub_law(exp.initial_positions, exp.initial_velocities,
-                    exp.times, **exp.params)
+    pred = stub_law(
+        exp.initial_positions, exp.initial_velocities, exp.times, **exp.params
+    )
     assert pred.shape == exp.positions.shape
     mse = float(((pred - exp.positions) ** 2).mean())
     assert math.isfinite(mse) and mse >= 0.0

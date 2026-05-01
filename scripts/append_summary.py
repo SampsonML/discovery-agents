@@ -9,15 +9,23 @@ import sys
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--run-json", required=True, help="Path to <base>.json from --store_output")
-    p.add_argument("--summary", required=True, help="Path to summary.jsonl to append to")
+    p.add_argument(
+        "--run-json", required=True, help="Path to <base>.json from --store_output"
+    )
+    p.add_argument(
+        "--summary", required=True, help="Path to summary.jsonl to append to"
+    )
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--critic", required=True, choices=["on", "off"])
     p.add_argument("--critic-model", default="")
     p.add_argument("--return-code", type=int, default=0)
     p.add_argument("--stdout-log", default="")
-    p.add_argument("--max-rounds", type=int, default=None,
-                   help="Round budget configured for the run (for rounds sweeps).")
+    p.add_argument(
+        "--max-rounds",
+        type=int,
+        default=None,
+        help="Round budget configured for the run (for rounds sweeps).",
+    )
     args = p.parse_args()
 
     use_critic = args.critic == "on"
@@ -41,7 +49,9 @@ def main():
             "explanation_score": None,
             "final_law": None,
             "run_json_path": os.path.abspath(args.run_json),
-            "stdout_log_path": os.path.abspath(args.stdout_log) if args.stdout_log else None,
+            "stdout_log_path": (
+                os.path.abspath(args.stdout_log) if args.stdout_log else None
+            ),
             "return_code": args.return_code,
             "status": "missing_output",
         }
@@ -71,7 +81,9 @@ def main():
             "explanation_score": expl.get("score"),
             "final_law": data.get("final_law"),
             "run_json_path": os.path.abspath(args.run_json),
-            "stdout_log_path": os.path.abspath(args.stdout_log) if args.stdout_log else None,
+            "stdout_log_path": (
+                os.path.abspath(args.stdout_log) if args.stdout_log else None
+            ),
             "return_code": args.return_code,
             "status": "ok" if args.return_code == 0 else "nonzero_exit",
         }

@@ -7,6 +7,7 @@ from physchool.worlds.utils import cic_paint, cic_read
 # in case jax floats are overflowing, set all jax floats to float64
 jax.config.update("jax_enable_x64", True)
 
+
 class FieldSampler:
     """
     Simulated world with one scalar field and particles.
@@ -23,8 +24,13 @@ class FieldSampler:
     """
 
     @staticmethod
-    def recommend_grid_params(positions, domain_size, spatial_dimensions=2,
-                              min_cells_per_sep=3, max_grid_size=1024):
+    def recommend_grid_params(
+        positions,
+        domain_size,
+        spatial_dimensions=2,
+        min_cells_per_sep=3,
+        max_grid_size=1024,
+    ):
         """Recommend grid_size and source_smoothing based on particle distribution.
 
         Ensures the grid resolves inter-particle separations and the source
@@ -33,6 +39,7 @@ class FieldSampler:
         Returns (grid_size_tuple, source_smoothing).
         """
         from scipy.spatial import cKDTree
+
         if len(positions) < 2:
             gs = 64
             return tuple([gs] * spatial_dimensions), domain_size / gs
@@ -100,7 +107,9 @@ class FieldSampler:
         # Source smoothing: Gaussian kernel applied in Fourier space.
         # Prevents grid artifacts for singular Green's functions (e.g. fractional Laplacian).
         # Default: 1*dx. Increase to ~2-3*dx for operators with alpha < 1.
-        self.source_smoothing = source_smoothing if source_smoothing is not None else self.dx
+        self.source_smoothing = (
+            source_smoothing if source_smoothing is not None else self.dx
+        )
 
         # Force softening length: regularizes the Green's function at short range.
         # Adds epsilon^2 to k^2 in the denominator, equivalent to softening the
@@ -207,7 +216,9 @@ class FieldSampler:
         elif self.temporal_order == 2:
             forces = self._step_wave(sources, dt)
         else:
-            raise ValueError(f"temporal_order must be 0, 1, or 2, got {self.temporal_order}")
+            raise ValueError(
+                f"temporal_order must be 0, 1, or 2, got {self.temporal_order}"
+            )
 
         # Update particles (leapfrog-ish: kick-drift)
         accelerations = forces / self.particle_inertia[:, None]
@@ -310,6 +321,8 @@ class FieldSampler:
                 self.domain_size,
                 periodic=self.periodic_boundaries,
             )
-            forces.append(-self.force_coupling * self.particle_force * grad_at_particles)
+            forces.append(
+                -self.force_coupling * self.particle_force * grad_at_particles
+            )
 
         return jnp.stack(forces, axis=-1)

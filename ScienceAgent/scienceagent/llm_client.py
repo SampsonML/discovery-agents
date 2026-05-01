@@ -26,7 +26,6 @@ import json
 import requests
 from typing import Optional
 
-
 # Per-request wall-clock cap for any provider HTTP call. Stops a stalled
 # upstream (Together / OpenRouter / HF / etc.) from hanging the whole run.
 HTTP_TIMEOUT_S = 180.0
@@ -60,11 +59,13 @@ def complete(
     if _is_anthropic(model):
         return _anthropic_complete(model, messages, system, max_tokens)
     elif model.startswith("openrouter/"):
-        return _openrouter_complete(model[len("openrouter/"):], messages, system, max_tokens)
+        return _openrouter_complete(
+            model[len("openrouter/") :], messages, system, max_tokens
+        )
     elif model.startswith("groq/"):
-        return _groq_complete(model[len("groq/"):], messages, system, max_tokens)
+        return _groq_complete(model[len("groq/") :], messages, system, max_tokens)
     elif model.startswith("azure/"):
-        return _azure_complete(model[len("azure/"):], messages, system, max_tokens)
+        return _azure_complete(model[len("azure/") :], messages, system, max_tokens)
     else:
         return _openai_complete(model, messages, system, max_tokens)
 
@@ -72,8 +73,10 @@ def complete(
 def _is_anthropic(model: str) -> bool:
     return model.startswith("claude")
 
+
 # ------------------
 # anthropic specific
+
 
 def _anthropic_complete(model, messages, system, max_tokens):
     try:
@@ -96,6 +99,7 @@ def _anthropic_complete(model, messages, system, max_tokens):
 
     response = client.messages.create(**kwargs)
     return response.content[0].text
+
 
 # ----------
 # Openrouter
@@ -128,6 +132,7 @@ def _openrouter_complete(model, messages, system, max_tokens):
     content = message.get("content") or message.get("reasoning") or ""
     return content
 
+
 # ----
 # groq
 def _groq_complete(model, messages, system, max_tokens):
@@ -140,7 +145,11 @@ def _groq_complete(model, messages, system, max_tokens):
     if not api_key:
         raise EnvironmentError("OPENAI_API_KEY not set")
 
-    client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1", timeout=HTTP_TIMEOUT_S)
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.groq.com/openai/v1",
+        timeout=HTTP_TIMEOUT_S,
+    )
 
     full_messages = []
     if system:
@@ -179,8 +188,7 @@ def _azure_complete(model, messages, system, max_tokens):
     deployment = _AZURE_DEPLOYMENTS.get(model)
     if not deployment:
         raise ValueError(
-            f"Unknown Azure model '{model}'. "
-            f"Available: {list(_AZURE_DEPLOYMENTS)}"
+            f"Unknown Azure model '{model}'. " f"Available: {list(_AZURE_DEPLOYMENTS)}"
         )
 
     client = AzureOpenAI(
@@ -205,10 +213,10 @@ def _azure_complete(model, messages, system, max_tokens):
 
 # open ai, ollama is not working well, often hangs
 _OPENAI_COMPAT_PROVIDERS = {
-    "ollama/":   ("http://localhost:11434/v1", None),          # no key needed
-    "hf/":       ("https://api-inference.huggingface.co/v1", "HF_API_KEY"),
+    "ollama/": ("http://localhost:11434/v1", None),  # no key needed
+    "hf/": ("https://api-inference.huggingface.co/v1", "HF_API_KEY"),
     "together/": ("https://api.together.xyz/v1", "TOGETHER_API_KEY"),
-    "openai/":   (None, "OPENAI_API_KEY"),                     # default OpenAI base
+    "openai/": (None, "OPENAI_API_KEY"),  # default OpenAI base
 }
 
 
@@ -216,7 +224,7 @@ def _resolve_openai_provider(model: str) -> tuple[str, Optional[str], Optional[s
     """Return (resolved_model_name, base_url, api_key)."""
     for prefix, (base_url, key_var) in _OPENAI_COMPAT_PROVIDERS.items():
         if model.startswith(prefix):
-            resolved = model[len(prefix):]
+            resolved = model[len(prefix) :]
             api_key = os.environ.get(key_var) if key_var else "ollama"
             return resolved, base_url, api_key
 

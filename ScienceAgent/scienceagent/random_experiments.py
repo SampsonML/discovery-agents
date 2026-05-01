@@ -15,7 +15,6 @@ probe_positions/probe_velocities, etc.).
 import numpy as np
 from typing import Callable
 
-
 # Fixed 10-point measurement grid over the first 5 s of every run.
 # Matches the default `measurement_times` shown in the example requests
 # inside the prompt files.
@@ -51,7 +50,7 @@ def sample_two_particle(rng: np.random.Generator) -> dict:
 
 def _sample_probes(rng: np.random.Generator, n: int = 5) -> dict:
     return {
-        "probe_positions":  _round_pairs(rng.uniform(-10.0, 10.0, (n, 2))),
+        "probe_positions": _round_pairs(rng.uniform(-10.0, 10.0, (n, 2))),
         "probe_velocities": _round_pairs(rng.uniform(-5.0, 5.0, (n, 2))),
         "measurement_times": list(_DEFAULT_TIMES),
     }
@@ -68,7 +67,7 @@ def sample_three_species(rng: np.random.Generator) -> dict:
 def sample_species(rng: np.random.Generator) -> dict:
     """species world: 6 particles, agent controls all initial conditions."""
     return {
-        "positions":  _round_pairs(rng.uniform(-10.0, 10.0, (6, 2))),
+        "positions": _round_pairs(rng.uniform(-10.0, 10.0, (6, 2))),
         "velocities": _round_pairs(rng.uniform(-5.0, 5.0, (6, 2))),
         "measurement_times": list(_DEFAULT_TIMES),
     }

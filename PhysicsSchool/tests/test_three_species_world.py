@@ -17,7 +17,6 @@ import numpy as np
 import pytest
 from physchool.worlds.field_sampler import FieldSampler
 
-
 # ── World parameters ────────────────────────────────────────────────────────
 
 N_BACKGROUND = 30
@@ -48,9 +47,15 @@ def _background_positions():
 
 def _default_probe_positions():
     """5 probes at known locations relative to center."""
-    return np.array([
-        [5.0, 0.0], [0.0, 5.0], [-5.0, 0.0], [0.0, -5.0], [7.0, 7.0],
-    ])
+    return np.array(
+        [
+            [5.0, 0.0],
+            [0.0, 5.0],
+            [-5.0, 0.0],
+            [0.0, -5.0],
+            [7.0, 7.0],
+        ]
+    )
 
 
 def _all_positions():
@@ -91,10 +96,13 @@ def make_uniform_sampler(dt=0.005, grid_size=GRID):
     source = np.zeros(N_TOTAL)
     source[0:30] = 1.0  # uniform background
     # probes still 0
-    return make_three_species_sampler(source_coupling=source, dt=dt, grid_size=grid_size)
+    return make_three_species_sampler(
+        source_coupling=source, dt=dt, grid_size=grid_size
+    )
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
+
 
 class TestThreeSpeciesForces:
     """Species B should generate ~3x stronger fields than A; C should repel."""
@@ -104,7 +112,7 @@ class TestThreeSpeciesForces:
         all others far away with zeroed source coupling. Return force on probe."""
         FAR = 20.0
         positions = np.full((N_TOTAL, 2), FAR) + CENTER
-        positions[source_idx] = [CENTER, CENTER]       # source at origin
+        positions[source_idx] = [CENTER, CENTER]  # source at origin
         probe_idx = 30
         positions[probe_idx] = [CENTER + 3.0, CENTER]  # probe at (3, 0)
 
@@ -136,14 +144,14 @@ class TestThreeSpeciesForces:
 
     def test_species_b_stronger_than_a(self):
         """Force from a species-B source should be ~3x that from species-A."""
-        f_a = self._isolated_force_on_probe(0)    # particle 0, species A
-        f_b = self._isolated_force_on_probe(10)   # particle 10, species B
+        f_a = self._isolated_force_on_probe(0)  # particle 0, species A
+        f_b = self._isolated_force_on_probe(10)  # particle 10, species B
         ratio = np.linalg.norm(f_b) / np.linalg.norm(f_a)
         assert 2.5 < ratio < 3.5, f"B/A force ratio should be ~3.0, got {ratio:.2f}"
 
     def test_species_c_repulsive(self):
         """Force from a species-C source should point AWAY from the source."""
-        f_c = self._isolated_force_on_probe(20)   # particle 20, species C
+        f_c = self._isolated_force_on_probe(20)  # particle 20, species C
         # Probe is at +x from source, so repulsion means force is in +x direction
         assert f_c[0] > 0, f"Species C should repel; got force x-component {f_c[0]:.4e}"
 
@@ -158,7 +166,9 @@ class TestThreeSpeciesForces:
         """Force from species A should point toward the source (attractive)."""
         f_a = self._isolated_force_on_probe(0)
         # Probe is at +x from source, so attraction means force is in -x direction
-        assert f_a[0] < 0, f"Species A should attract; got force x-component {f_a[0]:.4e}"
+        assert (
+            f_a[0] < 0
+        ), f"Species A should attract; got force x-component {f_a[0]:.4e}"
 
 
 class TestProbeNeutrality:
@@ -197,7 +207,9 @@ class TestThreeSpeciesMomentum:
             sim.step()
         p1 = np.sum(sim.velocities, axis=0)
         dp = np.linalg.norm(p1 - p0)
-        assert dp > 1e-4, f"Momentum should drift (broken Newton's 3rd), got dp={dp:.2e}"
+        assert (
+            dp > 1e-4
+        ), f"Momentum should drift (broken Newton's 3rd), got dp={dp:.2e}"
 
 
 class TestThreeSpeciesMSE:
@@ -221,8 +233,9 @@ class TestThreeSpeciesMSE:
             pos_s = self._run(make_three_species_sampler, n_steps=n_steps)
             pos_u = self._run(make_uniform_sampler, n_steps=n_steps)
             mse_values.append(float(np.mean((pos_s - pos_u) ** 2)))
-        assert mse_values[0] < mse_values[1] < mse_values[2], \
-            f"MSE should grow over time: {mse_values}"
+        assert (
+            mse_values[0] < mse_values[1] < mse_values[2]
+        ), f"MSE should grow over time: {mse_values}"
 
     def test_identical_runs_zero_mse(self):
         pos_a = self._run(make_three_species_sampler)

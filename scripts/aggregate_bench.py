@@ -115,12 +115,21 @@ def main():
         "| model | world | noise | critic | n | MSE (mean±std) | explanation (mean±std) | pass rate | rounds (mean) |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
-    csv_rows = [[
-        "model", "world", "noise_std", "use_critic", "n",
-        "mean_pos_error_mean", "mean_pos_error_std",
-        "explanation_score_mean", "explanation_score_std",
-        "pass_rate", "n_rounds_mean",
-    ]]
+    csv_rows = [
+        [
+            "model",
+            "world",
+            "noise_std",
+            "use_critic",
+            "n",
+            "mean_pos_error_mean",
+            "mean_pos_error_std",
+            "explanation_score_mean",
+            "explanation_score_std",
+            "pass_rate",
+            "n_rounds_mean",
+        ]
+    ]
 
     def sort_key(k):
         model, world, noise, critic = k
@@ -147,10 +156,21 @@ def main():
             f"| {model} | {world} | {noise} | {'on' if critic else 'off'} | "
             f"{len(grp)} | {mse_str} | {exp_str} | {pass_rate:.2f} | {rounds_str} |"
         )
-        csv_rows.append([
-            model, world, noise, "on" if critic else "off", len(grp),
-            mse_m, mse_s, exp_m, exp_s, pass_rate, rounds_m,
-        ])
+        csv_rows.append(
+            [
+                model,
+                world,
+                noise,
+                "on" if critic else "off",
+                len(grp),
+                mse_m,
+                mse_s,
+                exp_m,
+                exp_s,
+                pass_rate,
+                rounds_m,
+            ]
+        )
 
     with open(md_path, "w") as f:
         f.write("\n".join(md_lines) + "\n")
@@ -175,20 +195,47 @@ def main():
     width = 0.8 / max(n_bars, 1)
     # Hand-picked pastel palette (dusty teal, sage, dusty rose, peach, powder blue, butter, mauve, mint).
     pastel_palette = [
-        "#8FB5C7", "#A8D5BA", "#F4B6C2", "#F5CBA7",
-        "#AECDE0", "#E8D5A0", "#D4A5A5", "#C5E1C5",
+        "#8FB5C7",
+        "#A8D5BA",
+        "#F4B6C2",
+        "#F5CBA7",
+        "#AECDE0",
+        "#E8D5A0",
+        "#D4A5A5",
+        "#C5E1C5",
     ]
     # Muted jewel-tone palette for dark backgrounds — readable without being neon.
     cyberpunk_palette = [
-        "#6FA8C7", "#C77D8E", "#9A8CC2", "#D4B26A",
-        "#7FB3A0", "#C79470", "#A3B8CC", "#B89BC0",
+        "#6FA8C7",
+        "#C77D8E",
+        "#9A8CC2",
+        "#D4B26A",
+        "#7FB3A0",
+        "#C79470",
+        "#A3B8CC",
+        "#B89BC0",
     ]
 
-    def _draw_panel(ax, metric, ylabel, critic_on, logy=False, show_legend=False,
-                    tick_fs=9, label_fs=None, title_fs=None, legend_fs=9,
-                    lowercase=False, edgecolor="black", ecolor=None,
-                    palette=pastel_palette, diff=False, invert_diff=False,
-                    log_ratio=False, show_helped_annotation=False):
+    def _draw_panel(
+        ax,
+        metric,
+        ylabel,
+        critic_on,
+        logy=False,
+        show_legend=False,
+        tick_fs=9,
+        label_fs=None,
+        title_fs=None,
+        legend_fs=9,
+        lowercase=False,
+        edgecolor="black",
+        ecolor=None,
+        palette=pastel_palette,
+        diff=False,
+        invert_diff=False,
+        log_ratio=False,
+        show_helped_annotation=False,
+    ):
         # Use geometric mean for MSE panels so the bar height matches the
         # log y-axis visual intuition (and isn't dominated by one outlier).
         use_geomean = (metric == "mean_pos_error") and not diff
@@ -197,18 +244,27 @@ def main():
                 means, errs_lo, errs_hi = [], [], []
                 for world in world_order:
                     if diff:
-                        on_vals = {r.get("seed"): r[metric] for r in rows
-                                   if r.get("model") == model and r.get("world") == world
-                                   and r.get("noise_std") == noise
-                                   and bool(r.get("use_critic"))}
-                        off_vals = {r.get("seed"): r[metric] for r in rows
-                                    if r.get("model") == model and r.get("world") == world
-                                    and r.get("noise_std") == noise
-                                    and not bool(r.get("use_critic"))}
+                        on_vals = {
+                            r.get("seed"): r[metric]
+                            for r in rows
+                            if r.get("model") == model
+                            and r.get("world") == world
+                            and r.get("noise_std") == noise
+                            and bool(r.get("use_critic"))
+                        }
+                        off_vals = {
+                            r.get("seed"): r[metric]
+                            for r in rows
+                            if r.get("model") == model
+                            and r.get("world") == world
+                            and r.get("noise_std") == noise
+                            and not bool(r.get("use_critic"))
+                        }
                         diffs = []
                         for sd_key in set(on_vals) & set(off_vals):
                             try:
-                                ov = float(on_vals[sd_key]); fv = float(off_vals[sd_key])
+                                ov = float(on_vals[sd_key])
+                                fv = float(off_vals[sd_key])
                             except (TypeError, ValueError):
                                 continue
                             if not (math.isfinite(ov) and math.isfinite(fv)):
@@ -216,8 +272,11 @@ def main():
                             if log_ratio:
                                 if ov <= 0 or fv <= 0:
                                     continue
-                                diffs.append(math.log10(fv / ov) if invert_diff
-                                             else math.log10(ov / fv))
+                                diffs.append(
+                                    math.log10(fv / ov)
+                                    if invert_diff
+                                    else math.log10(ov / fv)
+                                )
                             else:
                                 diffs.append(fv - ov if invert_diff else ov - fv)
                         if diffs:
@@ -227,11 +286,14 @@ def main():
                             m, s = None, None
                         lo = hi = s if s is not None else 0.0
                     else:
-                        g = [r for r in rows
-                             if r.get("model") == model
-                             and r.get("world") == world
-                             and r.get("noise_std") == noise
-                             and bool(r.get("use_critic")) == critic_on]
+                        g = [
+                            r
+                            for r in rows
+                            if r.get("model") == model
+                            and r.get("world") == world
+                            and r.get("noise_std") == noise
+                            and bool(r.get("use_critic")) == critic_on
+                        ]
                         if use_geomean:
                             m, err, _ = geomean_agg([r[metric] for r in g])
                             lo, hi = err if err is not None else (0.0, 0.0)
@@ -249,8 +311,11 @@ def main():
                 if lowercase:
                     label = label.lower()
                 bar_kwargs = dict(
-                    color=color, alpha=0.55 if noise != noises[0] else 0.95,
-                    hatch=hatch, edgecolor=edgecolor, linewidth=0.4,
+                    color=color,
+                    alpha=0.55 if noise != noises[0] else 0.95,
+                    hatch=hatch,
+                    edgecolor=edgecolor,
+                    linewidth=0.4,
                     capsize=2,
                 )
                 if ecolor is not None:
@@ -265,21 +330,26 @@ def main():
         ax.set_xticklabels(xticklabels, rotation=20, ha="right", fontsize=tick_fs)
         ax.tick_params(axis="y", labelsize=tick_fs)
         if diff and log_ratio:
-            ylabel_used = ("log₁₀(mse off / on)" if lowercase
-                           else "log₁₀(MSE off / on)")
+            ylabel_used = "log₁₀(mse off / on)" if lowercase else "log₁₀(MSE off / on)"
         elif diff:
             ylabel_used = "residual (critic)"
         elif use_geomean:
-            ylabel_used = (ylabel.lower().replace("mse", "mse (geomean)")
-                           if lowercase else ylabel.replace("MSE", "MSE (geomean)"))
+            ylabel_used = (
+                ylabel.lower().replace("mse", "mse (geomean)")
+                if lowercase
+                else ylabel.replace("MSE", "MSE (geomean)")
+            )
         else:
             ylabel_used = ylabel.lower() if lowercase else ylabel
         ax.set_ylabel(ylabel_used, fontsize=label_fs)
         if diff:
             title = "critic effect" if lowercase else "Critic effect"
         else:
-            title = (f"critic {'on' if critic_on else 'off'}" if lowercase
-                     else f"Critic {'on' if critic_on else 'off'}")
+            title = (
+                f"critic {'on' if critic_on else 'off'}"
+                if lowercase
+                else f"Critic {'on' if critic_on else 'off'}"
+            )
         ax.set_title(title, fontsize=title_fs)
         ax.grid(False)
         if diff:
@@ -287,13 +357,31 @@ def main():
             if logy and not log_ratio:
                 ax.set_yscale("symlog", linthresh=1.0)
             if show_helped_annotation:
-                anno_fs = (label_fs or 14)
-                ax.text(0.98, 0.96, "↑ critic helped", transform=ax.transAxes,
-                        ha="right", va="top", fontsize=anno_fs, style="italic",
-                        color=edgecolor, alpha=0.85)
-                ax.text(0.98, 0.04, "↓ critic harmed", transform=ax.transAxes,
-                        ha="right", va="bottom", fontsize=anno_fs, style="italic",
-                        color=edgecolor, alpha=0.85)
+                anno_fs = label_fs or 14
+                ax.text(
+                    0.98,
+                    0.96,
+                    "↑ critic helped",
+                    transform=ax.transAxes,
+                    ha="right",
+                    va="top",
+                    fontsize=anno_fs,
+                    style="italic",
+                    color=edgecolor,
+                    alpha=0.85,
+                )
+                ax.text(
+                    0.98,
+                    0.04,
+                    "↓ critic harmed",
+                    transform=ax.transAxes,
+                    ha="right",
+                    va="bottom",
+                    fontsize=anno_fs,
+                    style="italic",
+                    color=edgecolor,
+                    alpha=0.85,
+                )
         elif logy:
             ax.set_yscale("log")
         if show_legend:
@@ -302,8 +390,14 @@ def main():
     def _grouped_bar(metric, ylabel, fname, logy=False):
         fig, axes = plt.subplots(1, 2, figsize=(max(7, 2.6 * len(world_order)) * 2, 5))
         for ax, critic_on in zip(axes, [False, True]):
-            _draw_panel(ax, metric, ylabel, critic_on, logy=logy,
-                        show_legend=(critic_on is False))
+            _draw_panel(
+                ax,
+                metric,
+                ylabel,
+                critic_on,
+                logy=logy,
+                show_legend=(critic_on is False),
+            )
         fig.suptitle(f"{ylabel} across worlds (mean ± std over seeds)", y=1.02)
         fig.tight_layout()
         out_path = os.path.join(args.out_dir, fname)
@@ -321,42 +415,87 @@ def main():
             plt.rcParams["font.family"] = "serif"
             plt.rcParams["mathtext.fontset"] = "dejavuserif"
             fig, axes = plt.subplots(2, 3, figsize=(width_in, 9), sharex=True)
-            fs = dict(tick_fs=18, label_fs=22, title_fs=22, legend_fs=16,
-                      lowercase=True, edgecolor=edgecolor, ecolor=ecolor,
-                      palette=palette)
-            _draw_panel(axes[0, 0], "explanation_score", "Explanation score (↑)", False, **fs)
-            _draw_panel(axes[0, 1], "explanation_score", "Explanation score (↑)", True, **fs)
-            _draw_panel(axes[0, 2], "explanation_score", "Explanation score (↑)", True,
-                        diff=True, show_helped_annotation=True, **fs)
+            fs = dict(
+                tick_fs=18,
+                label_fs=22,
+                title_fs=22,
+                legend_fs=16,
+                lowercase=True,
+                edgecolor=edgecolor,
+                ecolor=ecolor,
+                palette=palette,
+            )
+            _draw_panel(
+                axes[0, 0], "explanation_score", "Explanation score (↑)", False, **fs
+            )
+            _draw_panel(
+                axes[0, 1], "explanation_score", "Explanation score (↑)", True, **fs
+            )
+            _draw_panel(
+                axes[0, 2],
+                "explanation_score",
+                "Explanation score (↑)",
+                True,
+                diff=True,
+                show_helped_annotation=True,
+                **fs,
+            )
             _draw_panel(axes[1, 0], "mean_pos_error", "MSE (↓)", False, logy=True, **fs)
             _draw_panel(axes[1, 1], "mean_pos_error", "MSE (↓)", True, logy=True, **fs)
-            _draw_panel(axes[1, 2], "mean_pos_error", "MSE (↓)", True,
-                        diff=True, invert_diff=True, log_ratio=True, **fs)
+            _draw_panel(
+                axes[1, 2],
+                "mean_pos_error",
+                "MSE (↓)",
+                True,
+                diff=True,
+                invert_diff=True,
+                log_ratio=True,
+                **fs,
+            )
             handles, labels = axes[0, 0].get_legend_handles_labels()
-            fig.legend(handles, labels, loc="upper center",
-                       bbox_to_anchor=(0.5, 1.05), ncol=len(handles),
-                       fontsize=18, frameon=False)
+            fig.legend(
+                handles,
+                labels,
+                loc="upper center",
+                bbox_to_anchor=(0.5, 1.05),
+                ncol=len(handles),
+                fontsize=18,
+                frameon=False,
+            )
             fig.tight_layout(rect=[0, 0, 1, 0.96])
             fig.subplots_adjust(bottom=0.16)
 
             from matplotlib.patches import FancyArrowPatch
+
             arrow_y = 0.015
             for ax in axes[1, :]:
                 bbox = ax.get_position()
-                arrow = FancyArrowPatch((bbox.x0, arrow_y), (bbox.x1, arrow_y),
-                                        transform=fig.transFigure,
-                                        arrowstyle="-|>", mutation_scale=25,
-                                        color=edgecolor, linewidth=2)
+                arrow = FancyArrowPatch(
+                    (bbox.x0, arrow_y),
+                    (bbox.x1, arrow_y),
+                    transform=fig.transFigure,
+                    arrowstyle="-|>",
+                    mutation_scale=25,
+                    color=edgecolor,
+                    linewidth=2,
+                )
                 fig.patches.append(arrow)
-                fig.text((bbox.x0 + bbox.x1) / 2, arrow_y, "physics difficulty",
-                         ha="center", va="center",
-                         color=edgecolor, fontsize=22, style="italic",
-                         bbox=dict(facecolor=fig.get_facecolor(),
-                                   edgecolor="none", pad=4))
+                fig.text(
+                    (bbox.x0 + bbox.x1) / 2,
+                    arrow_y,
+                    "physics difficulty",
+                    ha="center",
+                    va="center",
+                    color=edgecolor,
+                    fontsize=22,
+                    style="italic",
+                    bbox=dict(facecolor=fig.get_facecolor(), edgecolor="none", pad=4),
+                )
 
             out_path = os.path.join(args.out_dir, fname)
-            fig.savefig(out_path, dpi=200, bbox_inches="tight",
-                        facecolor=fig.get_facecolor())
+            fig.savefig(
+                out_path, dpi=200, bbox_inches="tight", facecolor=fig.get_facecolor()
+            )
             plt.close(fig)
         print(f"Wrote {out_path}")
 
@@ -370,51 +509,102 @@ def main():
             plt.rcParams["font.family"] = "serif"
             plt.rcParams["mathtext.fontset"] = "dejavuserif"
             fig, axes = plt.subplots(3, 2, figsize=(width_in, 13), sharex=True)
-            fs = dict(tick_fs=18, label_fs=22, title_fs=22, legend_fs=16,
-                      lowercase=True, edgecolor=edgecolor, ecolor=ecolor,
-                      palette=palette)
+            fs = dict(
+                tick_fs=18,
+                label_fs=22,
+                title_fs=22,
+                legend_fs=16,
+                lowercase=True,
+                edgecolor=edgecolor,
+                ecolor=ecolor,
+                palette=palette,
+            )
             # Col 0: explanation score; Col 1: MSE. Rows: off, on, diff.
-            _draw_panel(axes[0, 0], "explanation_score", "Explanation score (↑)", False, **fs)
-            _draw_panel(axes[0, 1], "mean_pos_error", "MSE (↓)", False,
-                        logy=True, **fs)
-            _draw_panel(axes[1, 0], "explanation_score", "Explanation score (↑)", True, **fs)
-            _draw_panel(axes[1, 1], "mean_pos_error", "MSE (↓)", True,
-                        logy=True, **fs)
-            _draw_panel(axes[2, 0], "explanation_score", "Explanation score (↑)", True,
-                        diff=True, show_helped_annotation=True, **fs)
-            _draw_panel(axes[2, 1], "mean_pos_error", "MSE (↓)", True,
-                        diff=True, invert_diff=True, log_ratio=True, **fs)
+            _draw_panel(
+                axes[0, 0], "explanation_score", "Explanation score (↑)", False, **fs
+            )
+            _draw_panel(axes[0, 1], "mean_pos_error", "MSE (↓)", False, logy=True, **fs)
+            _draw_panel(
+                axes[1, 0], "explanation_score", "Explanation score (↑)", True, **fs
+            )
+            _draw_panel(axes[1, 1], "mean_pos_error", "MSE (↓)", True, logy=True, **fs)
+            _draw_panel(
+                axes[2, 0],
+                "explanation_score",
+                "Explanation score (↑)",
+                True,
+                diff=True,
+                show_helped_annotation=True,
+                **fs,
+            )
+            _draw_panel(
+                axes[2, 1],
+                "mean_pos_error",
+                "MSE (↓)",
+                True,
+                diff=True,
+                invert_diff=True,
+                log_ratio=True,
+                **fs,
+            )
             handles, labels = axes[0, 0].get_legend_handles_labels()
-            fig.legend(handles, labels, loc="upper center",
-                       bbox_to_anchor=(0.5, 1.05), ncol=len(handles),
-                       fontsize=18, frameon=False)
+            fig.legend(
+                handles,
+                labels,
+                loc="upper center",
+                bbox_to_anchor=(0.5, 1.05),
+                ncol=len(handles),
+                fontsize=18,
+                frameon=False,
+            )
             fig.tight_layout(rect=[0, 0, 1, 0.97])
             fig.subplots_adjust(bottom=0.11)
 
             from matplotlib.patches import FancyArrowPatch
+
             arrow_y = 0.012
             for ax in axes[2, :]:
                 bbox = ax.get_position()
-                arrow = FancyArrowPatch((bbox.x0, arrow_y), (bbox.x1, arrow_y),
-                                        transform=fig.transFigure,
-                                        arrowstyle="-|>", mutation_scale=25,
-                                        color=edgecolor, linewidth=2)
+                arrow = FancyArrowPatch(
+                    (bbox.x0, arrow_y),
+                    (bbox.x1, arrow_y),
+                    transform=fig.transFigure,
+                    arrowstyle="-|>",
+                    mutation_scale=25,
+                    color=edgecolor,
+                    linewidth=2,
+                )
                 fig.patches.append(arrow)
-                fig.text((bbox.x0 + bbox.x1) / 2, arrow_y, "physics difficulty",
-                         ha="center", va="center",
-                         color=edgecolor, fontsize=22, style="italic",
-                         bbox=dict(facecolor=fig.get_facecolor(),
-                                   edgecolor="none", pad=4))
+                fig.text(
+                    (bbox.x0 + bbox.x1) / 2,
+                    arrow_y,
+                    "physics difficulty",
+                    ha="center",
+                    va="center",
+                    color=edgecolor,
+                    fontsize=22,
+                    style="italic",
+                    bbox=dict(facecolor=fig.get_facecolor(), edgecolor="none", pad=4),
+                )
 
             out_path = os.path.join(args.out_dir, fname)
-            fig.savefig(out_path, dpi=200, bbox_inches="tight",
-                        facecolor=fig.get_facecolor())
+            fig.savefig(
+                out_path, dpi=200, bbox_inches="tight", facecolor=fig.get_facecolor()
+            )
             plt.close(fig)
         print(f"Wrote {out_path}")
 
-    def _draw_aggregate_panel(ax, critic_on, edgecolor="black", palette=pastel_palette,
-                              tick_fs=18, label_fs=22, title_fs=22, legend_fs=14,
-                              lowercase=True):
+    def _draw_aggregate_panel(
+        ax,
+        critic_on,
+        edgecolor="black",
+        palette=pastel_palette,
+        tick_fs=18,
+        label_fs=22,
+        title_fs=22,
+        legend_fs=14,
+        lowercase=True,
+    ):
         """
         Right panel of the 2+1 layout: per-model bar chart averaging each
         metric across ALL physics trials (worlds, noise levels, seeds) at
@@ -425,9 +615,11 @@ def main():
         exp_means, exp_stds = [], []
         mse_means, mse_err_lo, mse_err_hi = [], [], []
         for model in models:
-            g = [r for r in rows
-                 if r.get("model") == model
-                 and bool(r.get("use_critic")) == critic_on]
+            g = [
+                r
+                for r in rows
+                if r.get("model") == model and bool(r.get("use_critic")) == critic_on
+            ]
             em, es, _ = agg([r["explanation_score"] for r in g])
             mm, merr, _ = geomean_agg([r["mean_pos_error"] for r in g])
             exp_means.append(em if em is not None else 0.0)
@@ -443,14 +635,25 @@ def main():
         width = 0.38
 
         bars_exp = ax.bar(
-            x_local - width / 2, exp_means, width, yerr=exp_stds,
-            color=color_exp, ecolor=edgecolor, capsize=3,
-            edgecolor=edgecolor, linewidth=0.4,
+            x_local - width / 2,
+            exp_means,
+            width,
+            yerr=exp_stds,
+            color=color_exp,
+            ecolor=edgecolor,
+            capsize=3,
+            edgecolor=edgecolor,
+            linewidth=0.4,
             label=("explanation score (↑)" if lowercase else "Explanation score (↑)"),
         )
         ax.set_ylabel(
-            ("mean explanation score (↑)" if lowercase else "Mean explanation score (↑)"),
-            color=color_exp, fontsize=label_fs,
+            (
+                "mean explanation score (↑)"
+                if lowercase
+                else "Mean explanation score (↑)"
+            ),
+            color=color_exp,
+            fontsize=label_fs,
         )
         ax.tick_params(axis="y", labelcolor=color_exp, labelsize=tick_fs)
         ax.set_ylim(0.0, 1.15)
@@ -458,15 +661,25 @@ def main():
         ax2 = ax.twinx()
         mse_yerr = np.array([mse_err_lo, mse_err_hi])
         bars_mse = ax2.bar(
-            x_local + width / 2, mse_means, width, yerr=mse_yerr,
-            color=color_mse, ecolor=edgecolor, capsize=3,
-            edgecolor=edgecolor, linewidth=0.4,
+            x_local + width / 2,
+            mse_means,
+            width,
+            yerr=mse_yerr,
+            color=color_mse,
+            ecolor=edgecolor,
+            capsize=3,
+            edgecolor=edgecolor,
+            linewidth=0.4,
             label=("mse (↓, geomean)" if lowercase else "MSE (↓, geomean)"),
         )
         ax2.set_ylabel(
-            ("geometric mean mse (↓, log)" if lowercase
-             else "Geometric mean MSE (↓, log)"),
-            color=color_mse, fontsize=label_fs,
+            (
+                "geometric mean mse (↓, log)"
+                if lowercase
+                else "Geometric mean MSE (↓, log)"
+            ),
+            color=color_mse,
+            fontsize=label_fs,
         )
         ax2.set_yscale("log")
         ax2.tick_params(axis="y", labelcolor=color_mse, labelsize=tick_fs)
@@ -478,7 +691,6 @@ def main():
         ax.set_xticklabels(model_labels, rotation=20, ha="right", fontsize=tick_fs)
         ax.set_xlabel("")
 
-
     def _combined_2plus1(fname, dark=False):
         """
         Three-panel figure: left column stacks the critic-off explanation
@@ -487,6 +699,7 @@ def main():
         panel's x-axis.
         """
         from matplotlib.gridspec import GridSpec
+
         width_in = max(7, 2.6 * len(world_order)) * 2
         style = "dark_background" if dark else "default"
         edgecolor = "white" if dark else "black"
@@ -496,22 +709,47 @@ def main():
             plt.rcParams["font.family"] = "serif"
             plt.rcParams["mathtext.fontset"] = "dejavuserif"
             fig = plt.figure(figsize=(width_in, 10))
-            gs = GridSpec(2, 2, figure=fig, width_ratios=[1.0, 1.15],
-                          hspace=0.55, wspace=0.30,
-                          left=0.07, right=0.94, top=0.90, bottom=0.15)
+            gs = GridSpec(
+                2,
+                2,
+                figure=fig,
+                width_ratios=[1.0, 1.15],
+                hspace=0.55,
+                wspace=0.30,
+                left=0.07,
+                right=0.94,
+                top=0.90,
+                bottom=0.15,
+            )
             ax_tl = fig.add_subplot(gs[0, 0])
             ax_bl = fig.add_subplot(gs[1, 0], sharex=ax_tl)
-            ax_r  = fig.add_subplot(gs[:, 1])
+            ax_r = fig.add_subplot(gs[:, 1])
 
-            fs = dict(tick_fs=18, label_fs=22, title_fs=22, legend_fs=16,
-                      lowercase=True, edgecolor=edgecolor, ecolor=ecolor,
-                      palette=palette)
-            _draw_panel(ax_tl, "explanation_score", "Explanation score (↑)", False, **fs)
-            _draw_panel(ax_bl, "mean_pos_error",    "MSE (↓)",               False,
-                        logy=True, **fs)
-            _draw_aggregate_panel(ax_r, critic_on=False, edgecolor=edgecolor,
-                                  palette=palette, tick_fs=18, label_fs=22,
-                                  title_fs=22, legend_fs=14, lowercase=True)
+            fs = dict(
+                tick_fs=18,
+                label_fs=22,
+                title_fs=22,
+                legend_fs=16,
+                lowercase=True,
+                edgecolor=edgecolor,
+                ecolor=ecolor,
+                palette=palette,
+            )
+            _draw_panel(
+                ax_tl, "explanation_score", "Explanation score (↑)", False, **fs
+            )
+            _draw_panel(ax_bl, "mean_pos_error", "MSE (↓)", False, logy=True, **fs)
+            _draw_aggregate_panel(
+                ax_r,
+                critic_on=False,
+                edgecolor=edgecolor,
+                palette=palette,
+                tick_fs=18,
+                label_fs=22,
+                title_fs=22,
+                legend_fs=14,
+                lowercase=True,
+            )
 
             # Drop the "critic off" titles — the figure's only state is
             # critic off, so the repeated title is clutter.
@@ -524,30 +762,49 @@ def main():
             ax_tl.set_xlabel("")
 
             handles, labels = ax_tl.get_legend_handles_labels()
-            fig.legend(handles, labels, loc="upper center",
-                       bbox_to_anchor=(0.5, 0.99), ncol=min(len(handles), 6),
-                       fontsize=16, frameon=False)
+            fig.legend(
+                handles,
+                labels,
+                loc="upper center",
+                bbox_to_anchor=(0.5, 0.99),
+                ncol=min(len(handles), 6),
+                fontsize=16,
+                frameon=False,
+            )
 
             # Physics-difficulty arrow sits only under the left column, since
             # the right panel's x-axis is now models, not worlds.
             from matplotlib.patches import FancyArrowPatch
+
             arrow_y = 0.02
             for ax in (ax_bl,):
                 bbox = ax.get_position()
-                arrow = FancyArrowPatch((bbox.x0, arrow_y), (bbox.x1, arrow_y),
-                                        transform=fig.transFigure,
-                                        arrowstyle="-|>", mutation_scale=25,
-                                        color=edgecolor, linewidth=2)
+                arrow = FancyArrowPatch(
+                    (bbox.x0, arrow_y),
+                    (bbox.x1, arrow_y),
+                    transform=fig.transFigure,
+                    arrowstyle="-|>",
+                    mutation_scale=25,
+                    color=edgecolor,
+                    linewidth=2,
+                )
                 fig.patches.append(arrow)
-                fig.text((bbox.x0 + bbox.x1) / 2, arrow_y, "physics difficulty",
-                         ha="center", va="center",
-                         color=edgecolor, fontsize=22, style="italic",
-                         bbox=dict(facecolor=fig.get_facecolor(),
-                                   edgecolor="none", pad=4))
+                fig.text(
+                    (bbox.x0 + bbox.x1) / 2,
+                    arrow_y,
+                    "physics difficulty",
+                    ha="center",
+                    va="center",
+                    color=edgecolor,
+                    fontsize=22,
+                    style="italic",
+                    bbox=dict(facecolor=fig.get_facecolor(), edgecolor="none", pad=4),
+                )
 
             out_path = os.path.join(args.out_dir, fname)
-            fig.savefig(out_path, dpi=200, bbox_inches="tight",
-                        facecolor=fig.get_facecolor())
+            fig.savefig(
+                out_path, dpi=200, bbox_inches="tight", facecolor=fig.get_facecolor()
+            )
             plt.close(fig)
         print(f"Wrote {out_path}")
 

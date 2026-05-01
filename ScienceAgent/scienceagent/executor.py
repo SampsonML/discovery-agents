@@ -64,6 +64,7 @@ class _NoisyExecutorMixin:
         finally:
             self.noise_std = saved
 
+
 # this is hardcoded for a 2-particle simple system
 class SimulationExecutor(_NoisyExecutorMixin):
     """
@@ -90,13 +91,14 @@ class SimulationExecutor(_NoisyExecutorMixin):
         noise_std=0.0,
         noise_seed=None,
     ):
-        self.operators = operators or [{"type": "laplacian", "params": {"strength": 1.0}}]
+        self.operators = operators or [
+            {"type": "laplacian", "params": {"strength": 1.0}}
+        ]
         self.temporal_order = temporal_order
         self.grid_size = grid_size
         self.domain_size = domain_size
         self.dt = dt
         self._init_noise(noise_std, noise_seed)
-
 
     def run(self, experiments: list[dict]) -> list[dict]:
         """
@@ -119,7 +121,6 @@ class SimulationExecutor(_NoisyExecutorMixin):
         results = self.run(experiments)
         return json.dumps(results, indent=2)
 
-
     def _run_one(self, exp: dict) -> dict:
         p1 = float(exp["p1"])
         p2 = float(exp["p2"])
@@ -132,23 +133,31 @@ class SimulationExecutor(_NoisyExecutorMixin):
         # Particle 1 is fixed at origin; particle 2 is mobile.
         # Positions are placed relative to domain centre so the domain is centred at 0.
         centre = self.domain_size / 2.0
-        init_positions = np.array([
-            [centre, centre],                          # p1 at origin (domain centre)
-            [centre + pos2[0], centre + pos2[1]],      # p2 offset from origin
-        ], dtype=np.float64)
-        init_velocities = np.array([
-            [0.0, 0.0],       # p1 held fixed
-            velocity2,
-        ], dtype=np.float64)
+        init_positions = np.array(
+            [
+                [centre, centre],  # p1 at origin (domain centre)
+                [centre + pos2[0], centre + pos2[1]],  # p2 offset from origin
+            ],
+            dtype=np.float64,
+        )
+        init_velocities = np.array(
+            [
+                [0.0, 0.0],  # p1 held fixed
+                velocity2,
+            ],
+            dtype=np.float64,
+        )
 
         # p1 controls field amplitude (source strength); p2 controls inertia.
         # Note: FieldSampler._paint_sources uses self.source_coupling as the
         # per-particle values array (not particle_source), so we pass our
         # per-particle source strengths through source_coupling.
         sim = FieldSampler(
-            particle_inertia=np.array([1, p2]),     # p1 inertia ≫ 0 → effectively fixed
-            particle_source=np.array([p1, 1.0]),       # stored but currently unused by step()
-            particle_force=np.array([0.0, 1.0]),       # p1 feels no force (fixed)
+            particle_inertia=np.array([1, p2]),  # p1 inertia ≫ 0 → effectively fixed
+            particle_source=np.array(
+                [p1, 1.0]
+            ),  # stored but currently unused by step()
+            particle_force=np.array([0.0, 1.0]),  # p1 feels no force (fixed)
             initial_positions=init_positions,
             initial_velocities=init_velocities,
             n_particles=2,
@@ -158,7 +167,7 @@ class SimulationExecutor(_NoisyExecutorMixin):
             domain_size=self.domain_size,
             operators=self.operators,
             dt=self.dt,
-            source_coupling=np.array([p1, 1.0]),       # per-particle, drives _paint_sources
+            source_coupling=np.array([p1, 1.0]),  # per-particle, drives _paint_sources
             force_coupling=1.0,
             periodic_boundaries=True,
         )
@@ -192,6 +201,7 @@ class SimulationExecutor(_NoisyExecutorMixin):
             "velocity1": vel1_traj,
             "velocity2": vel2_traj,
         }
+
 
 # hardcoded for 11 particle gravity system
 class CircleExecutor(_NoisyExecutorMixin):
@@ -231,7 +241,10 @@ class CircleExecutor(_NoisyExecutorMixin):
         noise_seed=None,
     ):
         self.operators = operators or [
-            {"type": "fractional_laplacian", "params": {"strength": 1.0, "alpha": self.ALPHA}}
+            {
+                "type": "fractional_laplacian",
+                "params": {"strength": 1.0, "alpha": self.ALPHA},
+            }
         ]
         self.temporal_order = temporal_order
         self.grid_size = grid_size
@@ -257,17 +270,21 @@ class CircleExecutor(_NoisyExecutorMixin):
         centre = self.domain_size / 2.0
         angles = np.linspace(0, 2 * np.pi, self.N_RING, endpoint=False)
 
-        ring_pos = np.column_stack([
-            centre + ring_radius * np.cos(angles),
-            centre + ring_radius * np.sin(angles),
-        ])
+        ring_pos = np.column_stack(
+            [
+                centre + ring_radius * np.cos(angles),
+                centre + ring_radius * np.sin(angles),
+            ]
+        )
         positions = np.vstack([[[centre, centre]], ring_pos])
 
         # Tangential velocities: CCW perpendicular to radial direction
-        ring_vel = np.column_stack([
-            -v_tang * np.sin(angles),
-             v_tang * np.cos(angles),
-        ])
+        ring_vel = np.column_stack(
+            [
+                -v_tang * np.sin(angles),
+                v_tang * np.cos(angles),
+            ]
+        )
         velocities = np.vstack([[[0.0, 0.0]], ring_vel])
 
         masses = np.ones(self.N_TOTAL)
@@ -297,7 +314,9 @@ class CircleExecutor(_NoisyExecutorMixin):
             t = round(i * self.dt, 10)
             for mt in measurement_times:
                 if mt not in recorded and t >= mt:
-                    pos_traj.append(self._noisy_positions(sim.positions - centre).tolist())
+                    pos_traj.append(
+                        self._noisy_positions(sim.positions - centre).tolist()
+                    )
                     vel_traj.append(sim.velocities.tolist())
                     recorded.add(mt)
             if len(recorded) == len(measurement_times):
@@ -307,9 +326,10 @@ class CircleExecutor(_NoisyExecutorMixin):
 
         return {
             "measurement_times": measurement_times,
-            "positions": pos_traj,   # (T, 11, 2) relative to domain center
+            "positions": pos_traj,  # (T, 11, 2) relative to domain center
             "velocities": vel_traj,  # (T, 11, 2)
         }
+
 
 # need to see whats going on here, something is not right
 class SpeciesExecutor(_NoisyExecutorMixin):
@@ -379,10 +399,14 @@ class SpeciesExecutor(_NoisyExecutorMixin):
         duration = float(exp.get("duration", max(measurement_times)))
         duration = max(duration, 5.0)
 
-        assert positions_rel.shape == (self.N_PARTICLES, 2), \
-            f"Expected {self.N_PARTICLES} positions, got {positions_rel.shape[0]}"
-        assert velocities.shape == (self.N_PARTICLES, 2), \
-            f"Expected {self.N_PARTICLES} velocities, got {velocities.shape[0]}"
+        assert positions_rel.shape == (
+            self.N_PARTICLES,
+            2,
+        ), f"Expected {self.N_PARTICLES} positions, got {positions_rel.shape[0]}"
+        assert velocities.shape == (
+            self.N_PARTICLES,
+            2,
+        ), f"Expected {self.N_PARTICLES} velocities, got {velocities.shape[0]}"
 
         centre = self.domain_size / 2.0
         positions = positions_rel + centre  # shift to domain coords
@@ -417,7 +441,9 @@ class SpeciesExecutor(_NoisyExecutorMixin):
             t = round(i * self.dt, 10)
             for mt in measurement_times:
                 if mt not in recorded and t >= mt:
-                    pos_traj.append(self._noisy_positions(sim.positions - centre).tolist())
+                    pos_traj.append(
+                        self._noisy_positions(sim.positions - centre).tolist()
+                    )
                     vel_traj.append(sim.velocities.tolist())
                     recorded.add(mt)
             if len(recorded) == len(measurement_times):
@@ -427,8 +453,8 @@ class SpeciesExecutor(_NoisyExecutorMixin):
 
         return {
             "measurement_times": measurement_times,
-            "positions": pos_traj,    # (T, 6, 2) relative to domain center
-            "velocities": vel_traj,   # (T, 6, 2)
+            "positions": pos_traj,  # (T, 6, 2) relative to domain center
+            "velocities": vel_traj,  # (T, 6, 2)
         }
 
 
@@ -511,16 +537,22 @@ class ThreeSpeciesExecutor(_NoisyExecutorMixin):
         duration = float(exp.get("duration", max(measurement_times)))
         duration = max(duration, 5.0)
 
-        assert probe_pos_rel.shape == (self.N_PROBES, 2), \
-            f"Expected {self.N_PROBES} probe positions, got {probe_pos_rel.shape[0]}"
-        assert probe_vel.shape == (self.N_PROBES, 2), \
-            f"Expected {self.N_PROBES} probe velocities, got {probe_vel.shape[0]}"
+        assert probe_pos_rel.shape == (
+            self.N_PROBES,
+            2,
+        ), f"Expected {self.N_PROBES} probe positions, got {probe_pos_rel.shape[0]}"
+        assert probe_vel.shape == (
+            self.N_PROBES,
+            2,
+        ), f"Expected {self.N_PROBES} probe velocities, got {probe_vel.shape[0]}"
 
         centre = self.domain_size / 2.0
-        positions = np.vstack([
-            self._bg_positions_rel + centre,
-            probe_pos_rel + centre,
-        ])
+        positions = np.vstack(
+            [
+                self._bg_positions_rel + centre,
+                probe_pos_rel + centre,
+            ]
+        )
         velocities = np.vstack([self._bg_velocities, probe_vel])
 
         masses = np.ones(self.N_TOTAL)
@@ -556,7 +588,9 @@ class ThreeSpeciesExecutor(_NoisyExecutorMixin):
             t = round(i * self.dt, 10)
             for mt in measurement_times:
                 if mt not in recorded and t >= mt:
-                    pos_traj.append(self._noisy_positions(sim.positions - centre).tolist())
+                    pos_traj.append(
+                        self._noisy_positions(sim.positions - centre).tolist()
+                    )
                     vel_traj.append(sim.velocities.tolist())
                     recorded.add(mt)
             if len(recorded) == len(measurement_times):
@@ -566,8 +600,8 @@ class ThreeSpeciesExecutor(_NoisyExecutorMixin):
 
         return {
             "measurement_times": measurement_times,
-            "positions": pos_traj,     # (T, 35, 2) relative to domain center
-            "velocities": vel_traj,    # (T, 35, 2)
+            "positions": pos_traj,  # (T, 35, 2) relative to domain center
+            "velocities": vel_traj,  # (T, 35, 2)
             "background_initial_positions": self._bg_positions_rel.tolist(),
         }
 
@@ -611,8 +645,8 @@ class DarkMatterExecutor(_NoisyExecutorMixin):
     N_VISIBLE = 20
     N_DARK = 10
     N_PROBES = 5
-    N_TOTAL = 35   # simulated internally
-    N_AGENT = 25   # returned to agent (visible + probes)
+    N_TOTAL = 35  # simulated internally
+    N_AGENT = 25  # returned to agent (visible + probes)
 
     VISIBLE = list(range(0, 20))
     DARK = list(range(20, 30))
@@ -644,10 +678,12 @@ class DarkMatterExecutor(_NoisyExecutorMixin):
         # Visible: orbiting at larger radii (ring between r=8 and r=15)
         vis_angles = rng.uniform(0, 2 * np.pi, self.N_VISIBLE)
         vis_radii = rng.uniform(8, 15, self.N_VISIBLE)
-        self._visible_positions_rel = np.column_stack([
-            vis_radii * np.cos(vis_angles),
-            vis_radii * np.sin(vis_angles),
-        ])
+        self._visible_positions_rel = np.column_stack(
+            [
+                vis_radii * np.cos(vis_angles),
+                vis_radii * np.sin(vis_angles),
+            ]
+        )
         # Dark matter: tightly clustered near center (σ = 1.0)
         self._dark_positions_rel = rng.normal(0, 1.0, (self.N_DARK, 2))
 
@@ -671,10 +707,15 @@ class DarkMatterExecutor(_NoisyExecutorMixin):
         v_circ = np.sqrt(np.maximum(M_enclosed, 0.0) / (2 * np.pi))
         r_safe = np.maximum(vis_r, 1e-6)
         # Unit tangential direction (CCW): (-y, x) / r
-        tangent = np.column_stack([
-            -self._visible_positions_rel[:, 1],
-             self._visible_positions_rel[:, 0],
-        ]) / r_safe[:, None]
+        tangent = (
+            np.column_stack(
+                [
+                    -self._visible_positions_rel[:, 1],
+                    self._visible_positions_rel[:, 0],
+                ]
+            )
+            / r_safe[:, None]
+        )
         self._visible_velocities = v_circ[:, None] * tangent
 
         self._dark_velocities = np.zeros((self.N_DARK, 2))
@@ -699,24 +740,32 @@ class DarkMatterExecutor(_NoisyExecutorMixin):
         # Allow evaluator to flip visible orbit direction (+1 CCW, -1 CW)
         vis_vel_sign = float(exp.get("visible_velocity_sign", 1.0))
 
-        assert probe_pos_rel.shape == (self.N_PROBES, 2), \
-            f"Expected {self.N_PROBES} probe positions, got {probe_pos_rel.shape[0]}"
-        assert probe_vel.shape == (self.N_PROBES, 2), \
-            f"Expected {self.N_PROBES} probe velocities, got {probe_vel.shape[0]}"
+        assert probe_pos_rel.shape == (
+            self.N_PROBES,
+            2,
+        ), f"Expected {self.N_PROBES} probe positions, got {probe_pos_rel.shape[0]}"
+        assert probe_vel.shape == (
+            self.N_PROBES,
+            2,
+        ), f"Expected {self.N_PROBES} probe velocities, got {probe_vel.shape[0]}"
 
         centre = self.domain_size / 2.0
 
         # Full internal state: visible + dark + probes
-        positions = np.vstack([
-            self._visible_positions_rel + centre,
-            self._dark_positions_rel + centre,
-            probe_pos_rel + centre,
-        ])
-        velocities = np.vstack([
-            vis_vel_sign * self._visible_velocities,
-            self._dark_velocities,
-            probe_vel,
-        ])
+        positions = np.vstack(
+            [
+                self._visible_positions_rel + centre,
+                self._dark_positions_rel + centre,
+                probe_pos_rel + centre,
+            ]
+        )
+        velocities = np.vstack(
+            [
+                vis_vel_sign * self._visible_velocities,
+                self._dark_velocities,
+                probe_vel,
+            ]
+        )
 
         masses = np.ones(self.N_TOTAL)
         source_coupling = np.zeros(self.N_TOTAL)
@@ -764,8 +813,8 @@ class DarkMatterExecutor(_NoisyExecutorMixin):
 
         return {
             "measurement_times": measurement_times,
-            "positions": pos_traj,      # (T, 25, 2) — visible + probes only
-            "velocities": vel_traj,     # (T, 25, 2)
+            "positions": pos_traj,  # (T, 25, 2) — visible + probes only
+            "velocities": vel_traj,  # (T, 25, 2)
             "background_initial_positions": self._visible_positions_rel.tolist(),
         }
 
@@ -782,16 +831,20 @@ class DarkMatterExecutor(_NoisyExecutorMixin):
         vis_vel_sign = float(exp.get("visible_velocity_sign", 1.0))
 
         centre = self.domain_size / 2.0
-        positions = np.vstack([
-            self._visible_positions_rel + centre,
-            self._dark_positions_rel + centre,
-            probe_pos_rel + centre,
-        ])
-        velocities = np.vstack([
-            vis_vel_sign * self._visible_velocities,
-            self._dark_velocities,
-            probe_vel,
-        ])
+        positions = np.vstack(
+            [
+                self._visible_positions_rel + centre,
+                self._dark_positions_rel + centre,
+                probe_pos_rel + centre,
+            ]
+        )
+        velocities = np.vstack(
+            [
+                vis_vel_sign * self._visible_velocities,
+                self._dark_velocities,
+                probe_vel,
+            ]
+        )
 
         masses = np.ones(self.N_TOTAL)
         source_coupling = np.zeros(self.N_TOTAL)
@@ -836,8 +889,8 @@ class DarkMatterExecutor(_NoisyExecutorMixin):
 
         return {
             "measurement_times": measurement_times,
-            "positions": pos_traj,       # (T, 35, 2) — ALL particles
-            "velocities": vel_traj,      # (T, 35, 2)
+            "positions": pos_traj,  # (T, 35, 2) — ALL particles
+            "velocities": vel_traj,  # (T, 35, 2)
             "field_snapshots": field_snapshots,  # (T, grid, grid)
             "dark_initial_positions": self._dark_positions_rel.tolist(),
             "background_initial_positions": self._visible_positions_rel.tolist(),

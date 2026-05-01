@@ -16,7 +16,6 @@ import numpy as np
 import pytest
 from physchool.worlds.field_sampler import FieldSampler
 
-
 # ── World parameters ────────────────────────────────────────────────────────
 
 N_VISIBLE = 20
@@ -37,18 +36,29 @@ def _positions_and_couplings():
     # Visible: orbiting at larger radii (ring between r=8 and r=15)
     vis_angles = rng.uniform(0, 2 * np.pi, N_VISIBLE)
     vis_radii = rng.uniform(8, 15, N_VISIBLE)
-    vis_pos_rel = np.column_stack([
-        vis_radii * np.cos(vis_angles),
-        vis_radii * np.sin(vis_angles),
-    ])
+    vis_pos_rel = np.column_stack(
+        [
+            vis_radii * np.cos(vis_angles),
+            vis_radii * np.sin(vis_angles),
+        ]
+    )
     # Dark matter: tightly clustered (σ = 1.0)
     dark_pos_rel = rng.normal(0, 1.0, (N_DARK, 2))
 
-    probe_pos = np.array([
-        [5, 0], [0, 5], [-5, 0], [0, -5], [7, 7],
-    ], dtype=np.float64)
+    probe_pos = np.array(
+        [
+            [5, 0],
+            [0, 5],
+            [-5, 0],
+            [0, -5],
+            [7, 7],
+        ],
+        dtype=np.float64,
+    )
 
-    positions = np.vstack([vis_pos_rel + CENTER, dark_pos_rel + CENTER, probe_pos + CENTER])
+    positions = np.vstack(
+        [vis_pos_rel + CENTER, dark_pos_rel + CENTER, probe_pos + CENTER]
+    )
 
     # Tangential velocities for visible particles (match executor)
     # Per-particle enclosed mass
@@ -71,7 +81,7 @@ def _positions_and_couplings():
 
     source = np.zeros(N_TOTAL)
     source[0:N_VISIBLE] = SOURCE_VIS
-    source[N_VISIBLE:N_VISIBLE + N_DARK] = SOURCE_DARK
+    source[N_VISIBLE : N_VISIBLE + N_DARK] = SOURCE_DARK
     return positions, velocities, source
 
 
@@ -102,30 +112,41 @@ def _make_sampler(source_coupling=None, dt=0.005):
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
+
 class TestDarkMatterHiding:
     """Agent-facing executor must hide the dark matter particles."""
 
     def test_agent_sees_25_particles(self):
         """DarkMatterExecutor.run() should return only 25 particles."""
         from scienceagent.executor import DarkMatterExecutor
+
         ex = DarkMatterExecutor()
-        result = ex.run([{
-            "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
-            "probe_velocities": [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
-            "measurement_times": [1.0],
-        }])[0]
+        result = ex.run(
+            [
+                {
+                    "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
+                    "probe_velocities": [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+                    "measurement_times": [1.0],
+                }
+            ]
+        )[0]
         assert len(result["positions"][0]) == 25
         assert len(result["background_initial_positions"]) == 20
 
     def test_full_output_has_35_particles(self):
         """DarkMatterExecutor.run_full() should return all 35 particles."""
         from scienceagent.executor import DarkMatterExecutor
+
         ex = DarkMatterExecutor()
-        result = ex.run_full([{
-            "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
-            "probe_velocities": [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
-            "measurement_times": [1.0],
-        }])[0]
+        result = ex.run_full(
+            [
+                {
+                    "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
+                    "probe_velocities": [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+                    "measurement_times": [1.0],
+                }
+            ]
+        )[0]
         assert len(result["positions"][0]) == 35
         assert len(result["dark_initial_positions"]) == 10
         assert len(result["field_snapshots"]) == 1
@@ -146,7 +167,7 @@ class TestDarkMatterForces:
 
         # Without dark matter (zero out dark source coupling)
         source_no_dark = source_with_dark.copy()
-        source_no_dark[N_VISIBLE:N_VISIBLE + N_DARK] = 0.0
+        source_no_dark[N_VISIBLE : N_VISIBLE + N_DARK] = 0.0
         sim_no = _make_sampler(source_coupling=source_no_dark)
         forces_no = np.asarray(sim_no.step())
         probe_force_no = np.linalg.norm(forces_no[30])
@@ -165,9 +186,9 @@ class TestDarkMatterForces:
 
         # Probe 0 is at (CENTER+5, CENTER). Dark halo is near (CENTER, CENTER).
         # Force should have a negative x-component (pointing toward center).
-        assert forces[30, 0] < 0, (
-            f"Probe at +x should be pulled toward center, got Fx={forces[30, 0]:.4e}"
-        )
+        assert (
+            forces[30, 0] < 0
+        ), f"Probe at +x should be pulled toward center, got Fx={forces[30, 0]:.4e}"
 
 
 class TestDarkMatterMSE:
@@ -182,16 +203,16 @@ class TestDarkMatterMSE:
     def test_dark_matter_changes_trajectories(self):
         _, _, source_dm = _positions_and_couplings()
         source_no_dm = source_dm.copy()
-        source_no_dm[N_VISIBLE:N_VISIBLE + N_DARK] = 0.0
+        source_no_dm[N_VISIBLE : N_VISIBLE + N_DARK] = 0.0
 
         pos_dm = self._run(source_dm, n_steps=500)
         pos_no = self._run(source_no_dm, n_steps=500)
 
         # Compare visible particles only
         mse = float(np.mean((pos_dm[:N_VISIBLE] - pos_no[:N_VISIBLE]) ** 2))
-        assert mse > 0.1, (
-            f"Dark matter should change visible trajectories significantly (MSE={mse:.2e})"
-        )
+        assert (
+            mse > 0.1
+        ), f"Dark matter should change visible trajectories significantly (MSE={mse:.2e})"
 
     def test_identical_runs_zero_mse(self):
         _, _, source = _positions_and_couplings()

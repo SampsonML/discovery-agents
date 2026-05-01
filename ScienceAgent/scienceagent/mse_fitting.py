@@ -53,21 +53,20 @@ from scienceagent.load_trajectories import (
     load_trajectories,
 )
 
-
 # Worlds that map to a position-MSE loss function. Continuous-parameter
 # worlds (gravity, yukawa, fractional, diffusion, wave, circle) match the
 # evaluator's existing fitting set; structural worlds (three_species,
 # dark_matter) score against the trajectory data even when no parameters
 # are declared, so the agent can see how well its current law tracks.
 _LOSS_FNS: dict[str, Callable] = {
-    "gravity":       _two_particle_loss,
-    "yukawa":        _two_particle_loss,
-    "fractional":    _two_particle_loss,
-    "diffusion":     _two_particle_loss,
-    "wave":          _two_particle_loss,
-    "circle":        _circle_loss,
+    "gravity": _two_particle_loss,
+    "yukawa": _two_particle_loss,
+    "fractional": _two_particle_loss,
+    "diffusion": _two_particle_loss,
+    "wave": _two_particle_loss,
+    "circle": _circle_loss,
     "three_species": _three_species_loss,
-    "dark_matter":   _dark_matter_loss,
+    "dark_matter": _dark_matter_loss,
 }
 
 
@@ -124,9 +123,7 @@ def fit_law(
         result["error"] = f"failed to load CSV: {e}"
         return result
     if not experiments:
-        result["error"] = (
-            f"no training trajectories for run_id={run_id} in {csv_path}"
-        )
+        result["error"] = f"no training trajectories for run_id={run_id} in {csv_path}"
         return result
 
     try:
@@ -161,7 +158,9 @@ def fit_law(
 
     init_kwargs = {name: init for name, init, _ in fit_spec_list}
     init_law = (
-        functools.partial(discovered_law, **init_kwargs) if init_kwargs else discovered_law
+        functools.partial(discovered_law, **init_kwargs)
+        if init_kwargs
+        else discovered_law
     )
     try:
         loss_before = float(loss_fn(init_law, training))
@@ -176,9 +175,7 @@ def fit_law(
         return result
 
     try:
-        fitted = _fit_law_parameters(
-            discovered_law, fit_spec_list, training, loss_fn
-        )
+        fitted = _fit_law_parameters(discovered_law, fit_spec_list, training, loss_fn)
     except Exception as e:
         result["error"] = f"optimizer_failure: {e}"
         result["fitted_params"] = init_kwargs
@@ -223,8 +220,8 @@ def _one_two_particle_sample(exp: ExperimentTrajectory) -> dict:
     p1/p2/pos2/velocity2 from `input`. Only t > 0 rows are observations;
     t = 0 carries the initial conditions.
     """
-    times_obs = exp.times[1:].tolist()                # (T-1,)
-    pos2_obs = exp.positions[1:, 1, :].tolist()       # particle index 1 = mobile probe
+    times_obs = exp.times[1:].tolist()  # (T-1,)
+    pos2_obs = exp.positions[1:, 1, :].tolist()  # particle index 1 = mobile probe
     vel2_obs = exp.velocities[1:, 1, :].tolist()
     pos2_init = exp.initial_positions[1].tolist()
     vel2_init = exp.initial_velocities[1].tolist()
@@ -247,7 +244,7 @@ def _one_two_particle_sample(exp: ExperimentTrajectory) -> dict:
 def _one_circle_sample(exp: ExperimentTrajectory) -> dict:
     """Pack a circle-world ExperimentTrajectory into evaluator-loss format."""
     times_obs = exp.times[1:].tolist()
-    positions_obs = exp.positions[1:].tolist()        # (T-1, 11, 2)
+    positions_obs = exp.positions[1:].tolist()  # (T-1, 11, 2)
     velocities_obs = exp.velocities[1:].tolist()
     return {
         "input": {
@@ -276,10 +273,10 @@ def _one_full_state_sample(exp: ExperimentTrajectory) -> dict:
     at t > 0 go into `output.positions`.
     """
     times_obs = exp.times[1:].tolist()
-    positions_obs = exp.positions[1:].tolist()        # (T-1, N, 2)
+    positions_obs = exp.positions[1:].tolist()  # (T-1, N, 2)
     return {
         "input": {
-            "init_positions": exp.initial_positions.tolist(),    # (N, 2)
+            "init_positions": exp.initial_positions.tolist(),  # (N, 2)
             "init_velocities": exp.initial_velocities.tolist(),  # (N, 2)
             "measurement_times": times_obs,
         },
@@ -293,6 +290,7 @@ def _one_full_state_sample(exp: ExperimentTrajectory) -> dict:
 # ---------------------------------------------------------------------------
 # CLI: `python -m scienceagent.mse_fitting <world> <run_id> <law_file>`
 
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Fit a candidate law against a run's trajectory CSV."
@@ -304,9 +302,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Path to a Python file defining discovered_law (and optionally fit_parameters).",
     )
     parser.add_argument(
-        "--csv-path", default=None,
+        "--csv-path",
+        default=None,
         help="Override the trajectory CSV path "
-             "(default: results/trajectories/<world>.csv).",
+        "(default: results/trajectories/<world>.csv).",
     )
     args = parser.parse_args(argv)
 

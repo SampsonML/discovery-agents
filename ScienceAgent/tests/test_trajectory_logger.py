@@ -31,7 +31,9 @@ def _read_csv(path: Path) -> list[dict]:
 def _check_common_schema(rows: list[dict], run_id: str, source: str = "agent") -> None:
     assert rows, "expected at least one row"
     for r in rows:
-        assert set(r.keys()) == set(COLUMNS), f"unexpected columns: {set(r.keys()) - set(COLUMNS)}"
+        assert set(r.keys()) == set(
+            COLUMNS
+        ), f"unexpected columns: {set(r.keys()) - set(COLUMNS)}"
         assert r["run_id"] == run_id
         assert r["source"] == source
         assert r["round"] == "1"
@@ -53,13 +55,16 @@ def test_two_particle_schema_and_t0(tmp_path, run_id):
     logger = TrajectoryLogger("gravity", executor, csv_path, run_id)
 
     exp_input = {
-        "p1": 1.5, "p2": 2.0,
-        "pos2": [3.0, -1.0], "velocity2": [0.1, 0.2],
+        "p1": 1.5,
+        "p2": 2.0,
+        "pos2": [3.0, -1.0],
+        "velocity2": [0.1, 0.2],
         "measurement_times": [0.5, 1.0],
     }
     [out] = executor.run([exp_input])
-    logger.log_experiment(round_num=1, source="agent",
-                          exp_input=exp_input, exp_output=out)
+    logger.log_experiment(
+        round_num=1, source="agent", exp_input=exp_input, exp_output=out
+    )
 
     rows = _read_csv(csv_path)
     _check_common_schema(rows, run_id)
@@ -89,9 +94,13 @@ def test_two_particle_appends_across_calls(tmp_path, run_id):
     csv_path = tmp_path / "gravity.csv"
     logger = TrajectoryLogger("gravity", executor, csv_path, run_id)
 
-    base = {"p1": 1.0, "p2": 1.0,
-            "pos2": [3.0, 0.0], "velocity2": [0.0, 0.0],
-            "measurement_times": [0.5]}
+    base = {
+        "p1": 1.0,
+        "p2": 1.0,
+        "pos2": [3.0, 0.0],
+        "velocity2": [0.0, 0.0],
+        "measurement_times": [0.5],
+    }
     [out1] = executor.run([base])
     [out2] = executor.run([base])
 
@@ -149,7 +158,7 @@ def test_species_schema(tmp_path, run_id):
     logger = TrajectoryLogger("species", executor, csv_path, run_id)
 
     exp_input = {
-        "positions":  [[0, 0], [3, 0], [-3, 0], [0, 3], [0, -3], [4, 4]],
+        "positions": [[0, 0], [3, 0], [-3, 0], [0, 3], [0, -3], [4, 4]],
         "velocities": [[0, 0]] * 6,
         "measurement_times": [0.5, 1.0],
     }
@@ -178,7 +187,7 @@ def test_three_species_schema(tmp_path, run_id):
     logger = TrajectoryLogger("three_species", executor, csv_path, run_id)
 
     exp_input = {
-        "probe_positions":  [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
+        "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
         "probe_velocities": [[0, 0]] * 5,
         "measurement_times": [0.5],
     }
@@ -210,7 +219,7 @@ def test_dark_matter_schema(tmp_path, run_id):
     logger = TrajectoryLogger("dark_matter", executor, csv_path, run_id)
 
     exp_input = {
-        "probe_positions":  [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
+        "probe_positions": [[5, 0], [0, 5], [-5, 0], [0, -5], [7, 7]],
         "probe_velocities": [[0, 0]] * 5,
         "measurement_times": [1.0],
     }
@@ -244,9 +253,13 @@ def test_pandas_roundtrip(tmp_path, run_id):
     csv_path = tmp_path / "gravity.csv"
     logger = TrajectoryLogger("gravity", executor, csv_path, run_id)
 
-    exp_input = {"p1": 1.0, "p2": 1.0,
-                 "pos2": [3.0, 0.0], "velocity2": [0.0, 0.5],
-                 "measurement_times": [0.5, 1.0, 2.0]}
+    exp_input = {
+        "p1": 1.0,
+        "p2": 1.0,
+        "pos2": [3.0, 0.0],
+        "velocity2": [0.0, 0.5],
+        "measurement_times": [0.5, 1.0, 2.0],
+    }
     [out] = executor.run([exp_input])
     logger.log_experiment(1, "agent", exp_input, out)
 

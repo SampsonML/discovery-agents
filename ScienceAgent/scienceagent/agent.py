@@ -7,7 +7,7 @@ The agent follows the protocol defined in PhysicsSchool/prompts/run_experiments.
   - Submits its discovered law in <final_law>...</final_law> tags
   - Maximum MAX_ROUNDS rounds before the loop is terminated
 
-Note, there is also a seperate supervisor/critic class to help keep the agent in line 
+Note, there is also a seperate supervisor/critic class to help keep the agent in line
 """
 
 import json
@@ -34,8 +34,8 @@ _DEFAULT_LAW_STUB = (
 
 # rough JSON style experiment action
 _DEFAULT_EXPERIMENT_FORMAT = (
-    "<run_experiment>[{\"p1\": 1.0, \"p2\": 1.0, \"pos2\": [3.0, 0.0], "
-    "\"velocity2\": [0.0, 0.0], \"measurement_times\": [0.5, 1.0, 2.0]}]</run_experiment>"
+    '<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
+    '"velocity2": [0.0, 0.0], "measurement_times": [0.5, 1.0, 2.0]}]</run_experiment>'
 )
 
 
@@ -94,6 +94,7 @@ def fit_parameters():
 
 def _load_system_prompt(prompt_path: str = None) -> str:
     import os
+
     prompt_path = prompt_path or _SYSTEM_PROMPT_PATH
     here = os.path.dirname(__file__)
     root = os.path.abspath(os.path.join(here, "..", "..", ".."))
@@ -180,22 +181,24 @@ class DiscoveryAgent:
         for round_num in range(1, self.max_rounds + 1):
             if self.verbose:
                 print(f"\n{'='*52}")
-                print(f"󰙨 󰧑  science agent experimenting at round {round_num}/{self.max_rounds} 󰧑  󰙨")
+                print(
+                    f"󰙨 󰧑  science agent experimenting at round {round_num}/{self.max_rounds} 󰧑  󰙨"
+                )
                 print(f"{'='*52}")
 
             round_entry = {
                 "round": round_num,
                 "system_message": None,
                 "llm_reply": None,
-                "action": None,            # "experiment" | "final_law" | "warning" | "no_tag" | "random_experiment" | "mse_fit"
+                "action": None,  # "experiment" | "final_law" | "warning" | "no_tag" | "random_experiment" | "mse_fit"
                 "experiment_input": None,  # parsed JSON list, or None
-                "experiment_output": None, # parsed JSON list, or None
+                "experiment_output": None,  # parsed JSON list, or None
                 "experiment_error": None,
                 "final_law": None,
                 "explanation": None,
                 "critic_feedback": None,
-                "mse_fit_input": None,     # raw law source string
-                "mse_fit_output": None,    # dict from mse_fitting.fit_law()
+                "mse_fit_input": None,  # raw law source string
+                "mse_fit_output": None,  # dict from mse_fitting.fit_law()
             }
 
             # In random-experiments mode, draw + execute the per-round experiment
@@ -211,19 +214,21 @@ class DiscoveryAgent:
                     "you will not be able to run further experiments after this."
                 )
                 messages.append({"role": "user", "content": warn_msg})
-                round_entry["system_message"] = _join_sys(round_entry["system_message"], warn_msg)
+                round_entry["system_message"] = _join_sys(
+                    round_entry["system_message"], warn_msg
+                )
 
             # On the final round, force a final_law submission
             if round_num == self.max_rounds:
                 force_msg = (
                     "This is your final round. You MUST now submit your best guess "
                     "as a <final_law> regardless of confidence. Do not run more experiments.\n\n"
-                    "<final_law>\n"
-                    + self._law_stub
-                    + "</final_law>"
+                    "<final_law>\n" + self._law_stub + "</final_law>"
                 )
                 messages.append({"role": "user", "content": force_msg})
-                round_entry["system_message"] = _join_sys(round_entry["system_message"], force_msg)
+                round_entry["system_message"] = _join_sys(
+                    round_entry["system_message"], force_msg
+                )
 
             reply = llm_client.complete(
                 model=self.model,
@@ -249,7 +254,9 @@ class DiscoveryAgent:
                     # re-prompt once for the explanation only.
                     if explanation is None:
                         if self.verbose:
-                            print("[Warning] Final law submitted without <explanation>. Re-prompting once.")
+                            print(
+                                "[Warning] Final law submitted without <explanation>. Re-prompting once."
+                            )
                         followup_msg = (
                             "Your <final_law> submission is accepted, but you did not include "
                             "the required <explanation> tag. Reply NOW with ONLY a single "
@@ -264,11 +271,17 @@ class DiscoveryAgent:
                             system=self._system,
                             max_tokens=self.max_tokens,
                         )
-                        messages.append({"role": "assistant", "content": followup_reply})
+                        messages.append(
+                            {"role": "assistant", "content": followup_reply}
+                        )
                         if self.verbose:
-                            print(f"\n[Science Agent — explanation follow-up]\n{followup_reply}")
+                            print(
+                                f"\n[Science Agent — explanation follow-up]\n{followup_reply}"
+                            )
                         explanation = _extract_tag(followup_reply, "explanation")
-                    self.discovered_explanation = explanation.strip() if explanation else None
+                    self.discovered_explanation = (
+                        explanation.strip() if explanation else None
+                    )
                     round_entry["action"] = "final_law"
                     round_entry["final_law"] = final_law.strip()
                     round_entry["explanation"] = self.discovered_explanation
@@ -288,7 +301,9 @@ class DiscoveryAgent:
                             "Please design and run at least one more experiment."
                         )
                     if self.verbose:
-                        print(f"[Warning] Agent submitted final law too early (round {round_num}/{self.min_rounds} minimum). Requiring more experiments.")
+                        print(
+                            f"[Warning] Agent submitted final law too early (round {round_num}/{self.min_rounds} minimum). Requiring more experiments."
+                        )
                     round_entry["action"] = "warning"
                     round_entry["system_message"] = warn
                     self.conversation_log.append(round_entry)
@@ -309,22 +324,19 @@ class DiscoveryAgent:
             mse_fit_block = _extract_tag(reply, "run_mse_fit")
             if experiment_block is None and mse_fit_block is None:
                 if self.verbose:
-                    print("[Warning] No recognized tag in response. Prompting agent to continue.")
+                    print(
+                        "[Warning] No recognized tag in response. Prompting agent to continue."
+                    )
                 no_tag_msg = (
                     "ERROR: No <run_experiment>, <run_mse_fit>, or <final_law> tag found "
                     "in your response. You must respond with one of these XML tags — no "
                     "code fences, no markdown, just the raw tag.\n\n"
-                    "Option 1 — run an experiment:\n"
-                    + self._experiment_format + "\n\n"
+                    "Option 1 — run an experiment:\n" + self._experiment_format + "\n\n"
                     "Option 2 — submit your final law:\n"
-                    "<final_law>\n"
-                    + self._law_stub
-                    + "</final_law>\n\n"
+                    "<final_law>\n" + self._law_stub + "</final_law>\n\n"
                     "Option 3 — fit your candidate law's free parameters against the data "
                     "you have collected so far (returns MSE before/after and fitted params):\n"
-                    "<run_mse_fit>\n"
-                    + self._law_stub
-                    + "</run_mse_fit>\n\n"
+                    "<run_mse_fit>\n" + self._law_stub + "</run_mse_fit>\n\n"
                     "Respond with the XML tag NOW. No explanation before or after."
                 )
                 round_entry["action"] = "no_tag"
@@ -349,9 +361,7 @@ class DiscoveryAgent:
                     round_entry["experiment_output"] = results
                     self._log_trajectories(round_num, "agent", exp_input, results)
                 except Exception as e:
-                    output_content = (
-                        f"<experiment_output>\nError running experiment: {e}\n</experiment_output>"
-                    )
+                    output_content = f"<experiment_output>\nError running experiment: {e}\n</experiment_output>"
                     round_entry["action"] = "experiment"
                     round_entry["experiment_error"] = str(e)
 
@@ -364,7 +374,9 @@ class DiscoveryAgent:
             # (when the agent wants to refine the law without new data) or
             # follow the experiment above.
             if mse_fit_block is not None:
-                fit_output_content = self._run_mse_fit(round_num, mse_fit_block, round_entry)
+                fit_output_content = self._run_mse_fit(
+                    round_num, mse_fit_block, round_entry
+                )
                 if self.verbose and self.show_experiment_output:
                     print(f"\n[Fitter]\n{fit_output_content}")
                 messages.append({"role": "user", "content": fit_output_content})
@@ -393,10 +405,14 @@ class DiscoveryAgent:
             self.conversation_log.append(round_entry)
 
         if self.verbose:
-            print(f"\n[Agent did not submit a final law within {self.max_rounds} rounds]")
+            print(
+                f"\n[Agent did not submit a final law within {self.max_rounds} rounds]"
+            )
         return None
 
-    def _inject_random_experiment(self, round_num: int, messages: list, round_entry: dict) -> None:
+    def _inject_random_experiment(
+        self, round_num: int, messages: list, round_entry: dict
+    ) -> None:
         """Draw one random experiment, run it, and append the output to messages.
 
         Mutates `messages` (adds a user turn containing the preamble + results)
@@ -428,11 +444,17 @@ class DiscoveryAgent:
         )
         user_block = (
             preamble
-            + "\n\n<experiment_input>\n" + json.dumps(exp_input) + "\n</experiment_input>"
-            + "\n<experiment_output>\n" + output_body + "\n</experiment_output>"
+            + "\n\n<experiment_input>\n"
+            + json.dumps(exp_input)
+            + "\n</experiment_input>"
+            + "\n<experiment_output>\n"
+            + output_body
+            + "\n</experiment_output>"
         )
         messages.append({"role": "user", "content": user_block})
-        round_entry["system_message"] = _join_sys(round_entry.get("system_message"), preamble)
+        round_entry["system_message"] = _join_sys(
+            round_entry.get("system_message"), preamble
+        )
 
         if self.verbose and self.show_experiment_output:
             print(f"\n[Simulator — random experiment {round_num}]\n{user_block}")
@@ -445,14 +467,22 @@ class DiscoveryAgent:
         if self.trajectory_logger is None:
             result = {
                 "error": "trajectory CSV logging is disabled, so no data is "
-                         "available for MSE fitting in this run.",
-                "loss_before": None, "loss_after": None,
-                "fitted_params": {}, "declared_params": {}, "n_training": 0,
+                "available for MSE fitting in this run.",
+                "loss_before": None,
+                "loss_after": None,
+                "fitted_params": {},
+                "declared_params": {},
+                "n_training": 0,
             }
             round_entry["mse_fit_output"] = result
-            return "<mse_fit_output>\n" + json.dumps(result, separators=(",", ":")) + "\n</mse_fit_output>"
+            return (
+                "<mse_fit_output>\n"
+                + json.dumps(result, separators=(",", ":"))
+                + "\n</mse_fit_output>"
+            )
 
         from scienceagent.mse_fitting import fit_law
+
         try:
             result = fit_law(
                 law_source=law_source,
@@ -463,8 +493,11 @@ class DiscoveryAgent:
         except Exception as e:
             result = {
                 "error": f"unexpected_error: {e}",
-                "loss_before": None, "loss_after": None,
-                "fitted_params": {}, "declared_params": {}, "n_training": 0,
+                "loss_before": None,
+                "loss_after": None,
+                "fitted_params": {},
+                "declared_params": {},
+                "n_training": 0,
             }
         round_entry["mse_fit_output"] = result
         if self.verbose:
@@ -475,7 +508,10 @@ class DiscoveryAgent:
                 lb = result.get("loss_before")
                 la = result.get("loss_after")
                 fp = result.get("fitted_params") or {}
-                pretty = ", ".join(f"{k}={v:.4g}" for k, v in fp.items()) or "(no fit_parameters)"
+                pretty = (
+                    ", ".join(f"{k}={v:.4g}" for k, v in fp.items())
+                    or "(no fit_parameters)"
+                )
                 # loss_{before,after} can be None when the law returned a
                 # non-finite value; fall back to "n/a" rather than crashing.
                 lb_str = f"{lb:.4g}" if isinstance(lb, (int, float)) else "n/a"
@@ -487,8 +523,9 @@ class DiscoveryAgent:
             + "\n</mse_fit_output>"
         )
 
-    def _log_trajectories(self, round_num: int, source: str,
-                          exp_inputs, exp_outputs) -> None:
+    def _log_trajectories(
+        self, round_num: int, source: str, exp_inputs, exp_outputs
+    ) -> None:
         """Forward each (input, output) pair to the trajectory logger, if any."""
         if self.trajectory_logger is None:
             return
