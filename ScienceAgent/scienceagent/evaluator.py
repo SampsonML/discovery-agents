@@ -1210,7 +1210,6 @@ class ExplanationJudge:
                 messages=[{"role": "user", "content": prompt}],
                 system=_JUDGE_SYSTEM_PROMPT,
                 max_tokens=self.max_tokens,
-                temperature=0.0,
             )
         except Exception as e:
             result = {

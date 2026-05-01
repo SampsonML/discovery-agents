@@ -98,10 +98,9 @@ def test_judge_parses_mocked_reply():
             verbose=False,
         )
         mock.assert_called_once()
-        # Verify the judge used the configured model and temperature 0
         kwargs = mock.call_args.kwargs
         assert kwargs["model"] == "claude-opus-4-6"
-        assert kwargs["temperature"] == 0.0
+        assert "temperature" not in kwargs
 
     assert result["raw_score"] == 6
     assert result["score"] == pytest.approx(0.6)

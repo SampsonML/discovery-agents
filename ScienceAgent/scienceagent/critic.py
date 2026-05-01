@@ -90,7 +90,6 @@ class CriticAgent:
             messages=[{"role": "user", "content": user_msg}],
             system=_CRITIC_SYSTEM_PROMPT,
             max_tokens=self.max_tokens,
-            temperature=0.3,
         )
 
 

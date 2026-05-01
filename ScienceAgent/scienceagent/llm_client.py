@@ -37,7 +37,6 @@ def complete(
     messages: list[dict],
     system: Optional[str] = None,
     max_tokens: int = 4096,
-    temperature: float = 0.8,
 ) -> str:
     """
     Send a chat completion request and return the assistant message text.
@@ -49,21 +48,25 @@ def complete(
         system: System prompt string (handled natively by Anthropic; prepended
             as a system message for OpenAI-compatible providers).
         max_tokens: Maximum tokens in the response.
-        temperature: Sampling temperature.
 
     Returns:
         The assistant's reply as a plain string.
+
+    Note: temperature is intentionally not exposed. Reasoning models
+    (gpt-5*, o1*, o3*, claude-opus-4-7+, gpt-5.4-pro) reject it, and
+    every provider has a sensible default — passing it just creates
+    400-error footguns when adding new model families.
     """
     if _is_anthropic(model):
-        return _anthropic_complete(model, messages, system, max_tokens, temperature)
+        return _anthropic_complete(model, messages, system, max_tokens)
     elif model.startswith("openrouter/"):
-        return _openrouter_complete(model[len("openrouter/"):], messages, system, max_tokens, temperature)
+        return _openrouter_complete(model[len("openrouter/"):], messages, system, max_tokens)
     elif model.startswith("groq/"):
-        return _groq_complete(model[len("groq/"):], messages, system, max_tokens, temperature)
+        return _groq_complete(model[len("groq/"):], messages, system, max_tokens)
     elif model.startswith("azure/"):
-        return _azure_complete(model[len("azure/"):], messages, system, max_tokens, temperature)
+        return _azure_complete(model[len("azure/"):], messages, system, max_tokens)
     else:
-        return _openai_complete(model, messages, system, max_tokens, temperature)
+        return _openai_complete(model, messages, system, max_tokens)
 
 
 def _is_anthropic(model: str) -> bool:
@@ -72,11 +75,7 @@ def _is_anthropic(model: str) -> bool:
 # ------------------
 # anthropic specific
 
-# Models that do not accept the `temperature` parameter (e.g. opus-4-7+).
-_ANTHROPIC_NO_TEMPERATURE_PREFIXES = ("claude-opus-4-7",)
-
-
-def _anthropic_complete(model, messages, system, max_tokens, temperature):
+def _anthropic_complete(model, messages, system, max_tokens):
     try:
         import anthropic
     except ImportError:
@@ -92,8 +91,6 @@ def _anthropic_complete(model, messages, system, max_tokens, temperature):
         max_tokens=max_tokens,
         messages=messages,
     )
-    if not model.startswith(_ANTHROPIC_NO_TEMPERATURE_PREFIXES):
-        kwargs["temperature"] = temperature
     if system:
         kwargs["system"] = system
 
@@ -102,7 +99,7 @@ def _anthropic_complete(model, messages, system, max_tokens, temperature):
 
 # ----------
 # Openrouter
-def _openrouter_complete(model, messages, system, max_tokens, temperature):
+def _openrouter_complete(model, messages, system, max_tokens):
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise EnvironmentError("OPENROUTER_API_KEY not set")
@@ -119,7 +116,6 @@ def _openrouter_complete(model, messages, system, max_tokens, temperature):
             "model": model,
             "messages": full_messages,
             "max_tokens": max_tokens,
-            "temperature": temperature,
         },
         timeout=HTTP_TIMEOUT_S,
     )
@@ -134,7 +130,7 @@ def _openrouter_complete(model, messages, system, max_tokens, temperature):
 
 # ----
 # groq
-def _groq_complete(model, messages, system, max_tokens, temperature):
+def _groq_complete(model, messages, system, max_tokens):
     try:
         from openai import OpenAI
     except ImportError:
@@ -155,7 +151,6 @@ def _groq_complete(model, messages, system, max_tokens, temperature):
         model=model,
         messages=full_messages,
         max_tokens=max_tokens,
-        temperature=temperature,
     )
     return response.choices[0].message.content
 
@@ -167,11 +162,8 @@ _AZURE_DEPLOYMENTS = {
     "gpt-5.4-pro": "gpt-5.4-pro-samat",
 }
 
-# Reasoning models don't support temperature
-_AZURE_REASONING_MODELS = {"gpt-5.4-pro"}
 
-
-def _azure_complete(model, messages, system, max_tokens, temperature):
+def _azure_complete(model, messages, system, max_tokens):
     try:
         from openai import AzureOpenAI
     except ImportError:
@@ -206,8 +198,6 @@ def _azure_complete(model, messages, system, max_tokens, temperature):
     )
     if system:
         kwargs["instructions"] = system
-    if model not in _AZURE_REASONING_MODELS:
-        kwargs["temperature"] = temperature
 
     response = client.responses.create(**kwargs)
     return response.output_text
@@ -237,7 +227,7 @@ def _resolve_openai_provider(model: str) -> tuple[str, Optional[str], Optional[s
     return model, base_url, api_key
 
 
-def _openai_complete(model, messages, system, max_tokens, temperature):
+def _openai_complete(model, messages, system, max_tokens):
     try:
         from openai import OpenAI
     except ImportError:
@@ -263,6 +253,5 @@ def _openai_complete(model, messages, system, max_tokens, temperature):
         model=resolved_model,
         messages=full_messages,
         max_tokens=max_tokens,
-        temperature=temperature,
     )
     return response.choices[0].message.content
