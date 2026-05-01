@@ -39,6 +39,59 @@ _DEFAULT_EXPERIMENT_FORMAT = (
 )
 
 
+# Documentation for the optional <run_mse_fit> tool. Appended to the system
+# prompt for every world whenever a trajectory_logger is wired up. Kept here
+# (rather than in the per-world prompt files) so the protocol stays in
+# lockstep with the implementation in agent.py / mse_fitting.py.
+_MSE_FIT_PROMPT_BLOCK = """\
+## OPTIONAL TOOL — MSE FITTING OF YOUR CANDIDATE LAW
+
+At the end of any round, you may include a <run_mse_fit> tag ALONGSIDE your
+<run_experiment> (or by itself) to ask the system to fit your candidate
+law's free parameters against the trajectory data you have already
+collected this run. This is the same scipy.optimize-based optimisation that
+the evaluator runs at the end of the mission, so use it to refine your law
+mid-discovery rather than waiting until submission.
+
+Rules:
+- The fit only sees data from THIS run (filtered by run_id), not other runs.
+- An <run_mse_fit> call does NOT consume a round on its own — running it
+  alongside <run_experiment> still counts as one round.
+- You may include AT MOST one <run_mse_fit> per round.
+- The body of <run_mse_fit> must contain the SAME source you would put in
+  <final_law>: a `discovered_law(...)` function and (optionally) a
+  `fit_parameters()` function declaring init values and bounds for free
+  parameters. Without a `fit_parameters()` block the system reports the
+  loss of your current hard-coded constants but cannot tune them.
+- The system replies with a <mse_fit_output> JSON block containing
+  `loss_before`, `loss_after`, `fitted_params`, `declared_params`,
+  `n_training`, and `error`. Use the fitted parameter values to refine
+  your physical reasoning (e.g. if alpha came out near 0.75 the operator
+  is closer to a fractional Laplacian than a standard one).
+- Do NOT submit <run_mse_fit> in your final-law round — that round must
+  contain ONLY <final_law> and <explanation>.
+- If <run_mse_fit> reports an error (compile failure, invalid
+  fit_parameters spec, or no_training_trajectories), fix the law in the
+  next round before submitting <final_law>.
+
+Example:
+<run_mse_fit>
+def discovered_law(pos1, pos2, p1, p2, velocity2, duration, **params):
+    import numpy as np
+    alpha = params.get("alpha", 0.5)
+    G     = params.get("G", 1.0)
+    # ... your candidate integration ...
+    return final_pos2, final_vel2
+
+def fit_parameters():
+    return {
+        "alpha": {"init": 0.5, "bounds": [0.1, 1.5]},
+        "G":     {"init": 1.0, "bounds": [0.01, 10.0]},
+    }
+</run_mse_fit>
+"""
+
+
 def _load_system_prompt(prompt_path: str = None) -> str:
     import os
     prompt_path = prompt_path or _SYSTEM_PROMPT_PATH
@@ -82,6 +135,7 @@ class DiscoveryAgent:
         min_rounds: int = MIN_ROUNDS,
         random_experiments: bool = False,
         random_generator: Optional[Callable[[], dict]] = None,
+        trajectory_logger=None,
     ):
         self.model = model
         self.executor = executor
@@ -97,6 +151,7 @@ class DiscoveryAgent:
         self.min_rounds = max(1, min(int(min_rounds), self.max_rounds))
         self.random_experiments = bool(random_experiments)
         self.random_generator = random_generator
+        self.trajectory_logger = trajectory_logger
         if self.random_experiments and self.random_generator is None:
             raise ValueError(
                 "random_experiments=True requires a random_generator callable."
@@ -132,13 +187,15 @@ class DiscoveryAgent:
                 "round": round_num,
                 "system_message": None,
                 "llm_reply": None,
-                "action": None,            # "experiment" | "final_law" | "warning" | "no_tag" | "random_experiment"
+                "action": None,            # "experiment" | "final_law" | "warning" | "no_tag" | "random_experiment" | "mse_fit"
                 "experiment_input": None,  # parsed JSON list, or None
                 "experiment_output": None, # parsed JSON list, or None
                 "experiment_error": None,
                 "final_law": None,
                 "explanation": None,
                 "critic_feedback": None,
+                "mse_fit_input": None,     # raw law source string
+                "mse_fit_output": None,    # dict from mse_fitting.fit_law()
             }
 
             # In random-experiments mode, draw + execute the per-round experiment
@@ -247,21 +304,27 @@ class DiscoveryAgent:
                 self.conversation_log.append(round_entry)
                 continue
 
-            # Check for experiment request
+            # Check for experiment / fit requests
             experiment_block = _extract_tag(reply, "run_experiment")
-            if experiment_block is None:
+            mse_fit_block = _extract_tag(reply, "run_mse_fit")
+            if experiment_block is None and mse_fit_block is None:
                 if self.verbose:
                     print("[Warning] No recognized tag in response. Prompting agent to continue.")
                 no_tag_msg = (
-                    "ERROR: No <run_experiment> or <final_law> tag found in your response. "
-                    "You must respond with EXACTLY one of these XML tags — no code fences, "
-                    "no markdown, just the raw tag.\n\n"
+                    "ERROR: No <run_experiment>, <run_mse_fit>, or <final_law> tag found "
+                    "in your response. You must respond with one of these XML tags — no "
+                    "code fences, no markdown, just the raw tag.\n\n"
                     "Option 1 — run an experiment:\n"
                     + self._experiment_format + "\n\n"
-                    + "Option 2 — submit your final law:\n"
+                    "Option 2 — submit your final law:\n"
                     "<final_law>\n"
                     + self._law_stub
                     + "</final_law>\n\n"
+                    "Option 3 — fit your candidate law's free parameters against the data "
+                    "you have collected so far (returns MSE before/after and fitted params):\n"
+                    "<run_mse_fit>\n"
+                    + self._law_stub
+                    + "</run_mse_fit>\n\n"
                     "Respond with the XML tag NOW. No explanation before or after."
                 )
                 round_entry["action"] = "no_tag"
@@ -270,29 +333,43 @@ class DiscoveryAgent:
                 messages.append({"role": "user", "content": no_tag_msg})
                 continue
 
-            # Run the experiments
-            try:
-                exp_input = json.loads(experiment_block)
-                results = self.executor.run(exp_input)
-                output_content = (
-                    "<experiment_output>\n"
-                    + _compact_json(results)
-                    + "\n</experiment_output>"
-                )
-                round_entry["action"] = "experiment"
-                round_entry["experiment_input"] = exp_input
-                round_entry["experiment_output"] = results
-            except Exception as e:
-                output_content = (
-                    f"<experiment_output>\nError running experiment: {e}\n</experiment_output>"
-                )
-                round_entry["action"] = "experiment"
-                round_entry["experiment_error"] = str(e)
+            # Run the experiment if present (must precede the fit so the new
+            # rows are in the CSV before fitting).
+            if experiment_block is not None:
+                try:
+                    exp_input = json.loads(experiment_block)
+                    results = self.executor.run(exp_input)
+                    output_content = (
+                        "<experiment_output>\n"
+                        + _compact_json(results)
+                        + "\n</experiment_output>"
+                    )
+                    round_entry["action"] = "experiment"
+                    round_entry["experiment_input"] = exp_input
+                    round_entry["experiment_output"] = results
+                    self._log_trajectories(round_num, "agent", exp_input, results)
+                except Exception as e:
+                    output_content = (
+                        f"<experiment_output>\nError running experiment: {e}\n</experiment_output>"
+                    )
+                    round_entry["action"] = "experiment"
+                    round_entry["experiment_error"] = str(e)
 
-            if self.verbose and self.show_experiment_output:
-                print(f"\n[Simulator]\n{output_content}")
+                if self.verbose and self.show_experiment_output:
+                    print(f"\n[Simulator]\n{output_content}")
 
-            messages.append({"role": "user", "content": output_content})
+                messages.append({"role": "user", "content": output_content})
+
+            # Run the MSE fit if requested. Free per round; can stand alone
+            # (when the agent wants to refine the law without new data) or
+            # follow the experiment above.
+            if mse_fit_block is not None:
+                fit_output_content = self._run_mse_fit(round_num, mse_fit_block, round_entry)
+                if self.verbose and self.show_experiment_output:
+                    print(f"\n[Fitter]\n{fit_output_content}")
+                messages.append({"role": "user", "content": fit_output_content})
+                if round_entry["action"] is None:
+                    round_entry["action"] = "mse_fit"
 
             # Critic feedback injection (skip round 1)
             # this seems to help when the critic model is strong
@@ -333,6 +410,7 @@ class DiscoveryAgent:
             output_body = _compact_json(results)
             round_entry["experiment_input"] = exp_input
             round_entry["experiment_output"] = results
+            self._log_trajectories(round_num, "random", [exp_input], results)
         except Exception as e:
             output_body = f"Error running experiment: {e}"
             round_entry["experiment_input"] = exp_input
@@ -359,6 +437,76 @@ class DiscoveryAgent:
         if self.verbose and self.show_experiment_output:
             print(f"\n[Simulator — random experiment {round_num}]\n{user_block}")
 
+    def _run_mse_fit(self, round_num: int, law_source: str, round_entry: dict) -> str:
+        """Fit the agent's candidate law against this run's CSV and return
+        the <mse_fit_output> tag content to send back. Mutates round_entry
+        with the input (raw source) and output (result dict)."""
+        round_entry["mse_fit_input"] = law_source.strip()
+        if self.trajectory_logger is None:
+            result = {
+                "error": "trajectory CSV logging is disabled, so no data is "
+                         "available for MSE fitting in this run.",
+                "loss_before": None, "loss_after": None,
+                "fitted_params": {}, "declared_params": {}, "n_training": 0,
+            }
+            round_entry["mse_fit_output"] = result
+            return "<mse_fit_output>\n" + json.dumps(result, separators=(",", ":")) + "\n</mse_fit_output>"
+
+        from scienceagent.mse_fitting import fit_law
+        try:
+            result = fit_law(
+                law_source=law_source,
+                world=self.trajectory_logger.world,
+                csv_path=self.trajectory_logger.csv_path,
+                run_id=self.trajectory_logger.run_id,
+            )
+        except Exception as e:
+            result = {
+                "error": f"unexpected_error: {e}",
+                "loss_before": None, "loss_after": None,
+                "fitted_params": {}, "declared_params": {}, "n_training": 0,
+            }
+        round_entry["mse_fit_output"] = result
+        if self.verbose:
+            err = result.get("error")
+            if err:
+                print(f"[mse_fit] error: {err}")
+            else:
+                lb = result.get("loss_before")
+                la = result.get("loss_after")
+                fp = result.get("fitted_params") or {}
+                pretty = ", ".join(f"{k}={v:.4g}" for k, v in fp.items()) or "(no fit_parameters)"
+                # loss_{before,after} can be None when the law returned a
+                # non-finite value; fall back to "n/a" rather than crashing.
+                lb_str = f"{lb:.4g}" if isinstance(lb, (int, float)) else "n/a"
+                la_str = f"{la:.4g}" if isinstance(la, (int, float)) else "n/a"
+                print(f"[mse_fit] loss {lb_str} -> {la_str}  fitted: {pretty}")
+        return (
+            "<mse_fit_output>\n"
+            + json.dumps(result, separators=(",", ":"))
+            + "\n</mse_fit_output>"
+        )
+
+    def _log_trajectories(self, round_num: int, source: str,
+                          exp_inputs, exp_outputs) -> None:
+        """Forward each (input, output) pair to the trajectory logger, if any."""
+        if self.trajectory_logger is None:
+            return
+        if not isinstance(exp_inputs, list) or not isinstance(exp_outputs, list):
+            return
+        for idx, (inp, out) in enumerate(zip(exp_inputs, exp_outputs)):
+            try:
+                self.trajectory_logger.log_experiment(
+                    round_num=round_num,
+                    source=source,
+                    exp_input=inp,
+                    exp_output=out,
+                    exp_idx_in_round=idx,
+                )
+            except Exception as e:
+                if self.verbose:
+                    print(f"[trajectory_logger] failed to log r{round_num} e{idx}: {e}")
+
     def _build_system_prompt(self) -> str:
         try:
             base = _load_system_prompt(self._system_prompt_path)
@@ -376,7 +524,8 @@ class DiscoveryAgent:
         pins down the minimum integration timestep the agent is allowed to
         use inside `discovered_law`.
         """
-        return (
+        mse_fit_available = self.trajectory_logger is not None
+        base = (
             "## RUN-SPECIFIC CONSTRAINTS (these override any conflicting numbers above)\n"
             f"- For this session you have EXACTLY {self.max_rounds} round(s) of "
             f"experiments. Plan accordingly: on round {self.max_rounds} you will be "
@@ -389,6 +538,9 @@ class DiscoveryAgent:
             "- ALWAYS set `dt > 0.005` in EVERY test simulation AND in your final "
             "law — no timestep anywhere in your code may be 0.005 or smaller.\n"
         )
+        if mse_fit_available:
+            base += "\n" + _MSE_FIT_PROMPT_BLOCK
+        return base
 
 
 def _join_sys(existing: Optional[str], new: str) -> str:
