@@ -40,6 +40,7 @@ from scienceagent.evaluator import (
     _compile_fit_parameters,
     _compile_law,
     _dark_matter_loss,
+    _ether_loss,
     _fit_law_parameters,
     _three_species_loss,
     _two_particle_loss,
@@ -67,6 +68,7 @@ _LOSS_FNS: dict[str, Callable] = {
     "circle": _circle_loss,
     "three_species": _three_species_loss,
     "dark_matter": _dark_matter_loss,
+    "ether": _ether_loss,
 }
 
 
@@ -205,6 +207,8 @@ def _experiments_to_training(
     the loss functions in evaluator.py expect."""
     if world == "circle":
         return [_one_circle_sample(e) for e in experiments]
+    if world == "ether":
+        return [_one_ether_sample(e) for e in experiments]
     if world in ("three_species", "dark_matter"):
         # Both worlds use the same shape: full N-particle initial state
         # from the CSV's t=0 row + observed positions at t > 0. Loss
@@ -278,6 +282,36 @@ def _one_full_state_sample(exp: ExperimentTrajectory) -> dict:
         "input": {
             "init_positions": exp.initial_positions.tolist(),  # (N, 2)
             "init_velocities": exp.initial_velocities.tolist(),  # (N, 2)
+            "measurement_times": times_obs,
+        },
+        "output": {
+            "measurement_times": times_obs,
+            "positions": positions_obs,
+        },
+    }
+
+
+def _one_ether_sample(exp: ExperimentTrajectory) -> dict:
+    """Pack an ether-world ExperimentTrajectory into evaluator-loss format.
+
+    Same shape as ``_one_full_state_sample`` but additionally carries the
+    per-particle masses recorded in the CSV ``mass`` column — the ether
+    ``discovered_law`` takes ``masses`` as a third argument, and
+    ``_ether_loss`` reads them from ``input["init_masses"]``.
+    """
+    times_obs = exp.times[1:].tolist()
+    positions_obs = exp.positions[1:].tolist()  # (T-1, 26, 2)
+    masses = exp.masses
+    if masses is None or np.isnan(masses).any():
+        # Should not happen for ether (the row builder always writes the
+        # mass column) but fall back gracefully so a partial CSV doesn't
+        # crash the fit.
+        masses = np.ones(exp.n_particles, dtype=float)
+    return {
+        "input": {
+            "init_positions": exp.initial_positions.tolist(),  # (26, 2)
+            "init_velocities": exp.initial_velocities.tolist(),  # (26, 2)
+            "init_masses": masses.tolist(),  # (26,)
             "measurement_times": times_obs,
         },
         "output": {

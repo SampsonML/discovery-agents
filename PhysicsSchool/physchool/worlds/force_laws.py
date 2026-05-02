@@ -19,6 +19,7 @@ All implementations use ``jax.numpy`` so they JIT-compile cleanly.  The 2D
 Yukawa kernel calls ``scipy.special.k0/k1`` via ``jax.pure_callback`` because
 JAX has no native modified-Bessel functions; this still traces through JIT.
 """
+
 from __future__ import annotations
 
 import jax
@@ -26,8 +27,8 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.special
 
-
 # ── 3D-style "Newtonian" gravity (uses charges as gravitational mass) ──────
+
 
 def gravity_force(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0):
     """Newtonian inverse-square attractive force, ``F = G q_i q_j / r^2``."""
@@ -39,8 +40,7 @@ def gravity_potential(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0):
     return -G * q_i * q_j / r_mag
 
 
-def screened_gravity_force(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0,
-                           lam: float = 5.0):
+def screened_gravity_force(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0, lam: float = 5.0):
     """3D-style exponentially screened inverse-square force.
 
     ``F = G q_i q_j exp(-r/lam) / r^2``.  Used by the screening
@@ -50,8 +50,7 @@ def screened_gravity_force(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0,
     return G * q_i * q_j / r_mag**2 * jnp.exp(-r_mag / lam)
 
 
-def running_coupling_force(r_mag, q_i, q_j, m_i, m_j, g0: float = 0.5,
-                           r0: float = 5.0):
+def running_coupling_force(r_mag, q_i, q_j, m_i, m_j, g0: float = 0.5, r0: float = 5.0):
     """Logarithmically running coupling ``g(r) = g0 / (1 + g0 ln(r/r0))``.
 
     Used to mimic QCD-like asymptotic freedom: at ``r << r0`` the effective
@@ -96,12 +95,14 @@ def poisson_2d_potential(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0):
 # magnitude is then |dG/dr| = K_1(r/λ) / (2π λ).  We expose ``scipy.special``
 # inside JAX via pure_callback (no native JAX modified-Bessel-K).
 
+
 def _k0_jax(x):
     """K_0 for jnp arrays via scipy callback (pure → JIT-compatible)."""
     shape_dtype = jax.ShapeDtypeStruct(x.shape, x.dtype)
     return jax.pure_callback(
         lambda xx: np.asarray(scipy.special.k0(xx), dtype=xx.dtype),
-        shape_dtype, x,
+        shape_dtype,
+        x,
     )
 
 
@@ -110,7 +111,8 @@ def _k1_jax(x):
     shape_dtype = jax.ShapeDtypeStruct(x.shape, x.dtype)
     return jax.pure_callback(
         lambda xx: np.asarray(scipy.special.k1(xx), dtype=xx.dtype),
-        shape_dtype, x,
+        shape_dtype,
+        x,
     )
 
 
@@ -123,8 +125,7 @@ def yukawa_2d_force(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0, lam: float = 2.0)
     return G * q_i * q_j * _INV_TWO_PI * _k1_jax(r_mag / lam) / lam
 
 
-def yukawa_2d_potential(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0,
-                         lam: float = 2.0):
+def yukawa_2d_potential(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0, lam: float = 2.0):
     """2D Yukawa potential, ``V = -G q_i q_j K_0(r/λ) / (2π)``.
 
     Vanishes as ``r → ∞`` (unlike the 2D Poisson log potential), so total PE
@@ -148,22 +149,22 @@ def yukawa_2d_potential(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0,
 # Newtonian inverse-square law that ``FieldSampler`` produces for that
 # operator, so the two engines agree up to integrator-precision.
 
+
 def _riesz_2d_prefactor(alpha: float) -> float:
     """``c_α = Γ(1-α) / (2^(2α) π Γ(α))`` for the 2D Riesz potential."""
-    return float(scipy.special.gamma(1.0 - alpha)
-                 / (2.0 ** (2.0 * alpha) * np.pi * scipy.special.gamma(alpha)))
+    return float(
+        scipy.special.gamma(1.0 - alpha)
+        / (2.0 ** (2.0 * alpha) * np.pi * scipy.special.gamma(alpha))
+    )
 
 
-def riesz_2d_force(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0,
-                    alpha: float = 0.5):
+def riesz_2d_force(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0, alpha: float = 0.5):
     """2D fractional-Laplacian (Riesz) force, ``F ∝ q_i q_j / r^(3 - 2α)``."""
     c = _riesz_2d_prefactor(alpha)
-    return (G * c * (2.0 - 2.0 * alpha) * q_i * q_j
-            / r_mag ** (3.0 - 2.0 * alpha))
+    return G * c * (2.0 - 2.0 * alpha) * q_i * q_j / r_mag ** (3.0 - 2.0 * alpha)
 
 
-def riesz_2d_potential(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0,
-                        alpha: float = 0.5):
+def riesz_2d_potential(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0, alpha: float = 0.5):
     """2D Riesz pair potential, ``V = -G c_α q_i q_j / r^(2 - 2α)``.
 
     Vanishes as ``r → ∞`` for α < 1.  At α = 1/2: ``c_α = 1/(2π)`` and the

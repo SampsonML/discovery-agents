@@ -59,6 +59,8 @@ class ExperimentTrajectory:
     velocities:         (T, N, 2)
     initial_positions:  (N, 2)      == positions[0]
     initial_velocities: (N, 2)      == velocities[0]
+    masses:             (N,)        per-particle masses; NaN-filled for
+                                    legacy worlds that don't track mass
     """
 
     run_id: str
@@ -70,6 +72,7 @@ class ExperimentTrajectory:
     velocities: np.ndarray
     initial_positions: np.ndarray
     initial_velocities: np.ndarray
+    masses: np.ndarray
     params: dict = field(default_factory=dict)
 
     @property
@@ -103,12 +106,16 @@ def load_trajectories(
 
     Returns:
         A list of `ExperimentTrajectory`, one per `experiment_id`, in the
-        order the experiments appear in the file.
+        order the experiments appear in the file. Experiments whose stored
+        positions/velocities contain NaN values (typically left over from
+        an earlier buggy simulator run) are skipped with a warning; this
+        prevents one corrupted experiment from poisoning the whole load.
 
     Raises:
         FileNotFoundError: if the CSV does not exist.
-        ValueError: if a single experiment has a ragged (time, particle)
-            grid (e.g. one particle missing at one timestep).
+        ValueError: if a single experiment has a truly ragged
+            (time, particle) grid — i.e. some (time, particle_id) cell was
+            never written at all (distinct from "written with NaN values").
     """
     path = _resolve_path(world_or_path)
     run_id_filter = _normalise_run_id(run_id)
@@ -121,7 +128,13 @@ def load_trajectories(
                 continue
             grouped.setdefault(row["experiment_id"], []).append(row)
 
-    return [_build_experiment(eid, rows) for eid, rows in grouped.items()]
+    out: list[ExperimentTrajectory] = []
+    for eid, rows in grouped.items():
+        exp = _build_experiment(eid, rows)
+        if exp is None:
+            continue
+        out.append(exp)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +166,17 @@ def _normalise_run_id(
     return set(run_id)
 
 
-def _build_experiment(experiment_id: str, rows: list[dict]) -> ExperimentTrajectory:
-    """Reshape the rows of one experiment into (T, N, 2) arrays."""
+def _build_experiment(
+    experiment_id: str, rows: list[dict]
+) -> Optional[ExperimentTrajectory]:
+    """Reshape the rows of one experiment into (T, N, 2) arrays.
+
+    Returns None (with a warning) if the experiment's rows contain NaN
+    values for positions/velocities — typically a leftover from an earlier
+    buggy simulator run. Truly missing rows (cells that were never
+    written) still raise ValueError, since that signals a logging bug
+    rather than data quality.
+    """
     if not rows:
         raise ValueError(f"Empty row list for experiment '{experiment_id}'.")
 
@@ -170,20 +192,46 @@ def _build_experiment(experiment_id: str, rows: list[dict]) -> ExperimentTraject
     N = len(particles)
     positions = np.full((T, N, 2), np.nan, dtype=np.float64)
     velocities = np.full((T, N, 2), np.nan, dtype=np.float64)
+    # Track which (time, particle) cells we actually saw a row for, so we
+    # can distinguish "row never written" from "row written with NaN".
+    written = np.zeros((T, N), dtype=bool)
+    # Mass column is per-particle (constant across time) but may be empty
+    # for worlds that never wrote it. We collect per-particle entries and
+    # leave NaN where the column was blank.
+    masses = np.full((N,), np.nan, dtype=np.float64)
 
     for r in rows:
         i = time_index[float(r["time"])]
         j = particle_index[int(r["particle_id"])]
         positions[i, j] = (float(r["x"]), float(r["y"]))
         velocities[i, j] = (float(r["vx"]), float(r["vy"]))
+        written[i, j] = True
+        m_raw = r.get("mass")
+        if m_raw not in (None, "", "NaN", "nan"):
+            masses[j] = float(m_raw)
 
-    if np.isnan(positions).any() or np.isnan(velocities).any():
-        missing = np.argwhere(np.isnan(positions[..., 0]))
-        first = tuple(missing[0]) if len(missing) else None
+    if not written.all():
+        missing_idx = np.argwhere(~written)
+        first = tuple(missing_idx[0])
         raise ValueError(
             f"Experiment '{experiment_id}' has a ragged (time, particle) grid; "
             f"first missing cell at (time_index, particle_index)={first}."
         )
+
+    if np.isnan(positions).any() or np.isnan(velocities).any():
+        # Rows were present but contained NaN values — typically corrupt
+        # data from an earlier buggy run. Skip rather than crash so a
+        # later good experiment in the same CSV still loads.
+        nan_cells = int(np.isnan(positions[..., 0]).sum())
+        import warnings as _warnings
+
+        _warnings.warn(
+            f"skipping experiment '{experiment_id}': "
+            f"{nan_cells}/{T*N} (time, particle) cells contain NaN values "
+            f"in positions/velocities (likely stale rows from a prior buggy run).",
+            stacklevel=3,
+        )
+        return None
 
     # All these run-level fields must be identical across rows of the same
     # experiment, so we read them off the first row.
@@ -205,6 +253,7 @@ def _build_experiment(experiment_id: str, rows: list[dict]) -> ExperimentTraject
         velocities=velocities,
         initial_positions=positions[0].copy(),
         initial_velocities=velocities[0].copy(),
+        masses=masses,
         params=params,
     )
 

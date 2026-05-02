@@ -14,6 +14,7 @@ from scienceagent.executor import (
     SpeciesExecutor,
     ThreeSpeciesExecutor,
     DarkMatterExecutor,
+    NBodyEtherExecutor,
 )
 
 MAX_FIT_PARAMETERS = 3
@@ -30,8 +31,8 @@ LAW_CALL_TIMEOUT_S = 10.0
 # may be a pure-Python integrator that takes seconds per call; without these
 # caps scipy.minimize can call it hundreds of times and stall evaluation for
 # hours. Used by `_subsample_training` for n-body / multi-trajectory fits.
-FIT_MAX_TRAJECTORIES = 4     # cap training trajectories used by the loss
-FIT_MAX_TIMES_PER_TRAJ = 5   # cap measurement times within each trajectory
+FIT_MAX_TRAJECTORIES = 4  # cap training trajectories used by the loss
+FIT_MAX_TIMES_PER_TRAJ = 5  # cap measurement times within each trajectory
 
 
 class _FitTimeBudgetExceeded(Exception):
@@ -759,6 +760,169 @@ class DarkMatterEvaluator:
         }
 
 
+_ETHER_TEST_CASES = [
+    # Far-out probes at rest with mixed masses. Central force is weak at this
+    # range, so the parabolic ether-drift dominates and dynamics stay regular.
+    # Mass mix exercises whether the agent's law treats the drift as
+    # mass-dependent (it shouldn't — drift acceleration is uniform).
+    {
+        "probe_positions": [[15, 0], [0, 18], [-15, 0], [0, -16], [12, 12]],
+        "probe_velocities": [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+        "probe_masses": [1.0, 2.0, 4.0, 1.0, 2.0],
+        "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+    },
+    # Probes with approximately-circular tangential velocities at r=10
+    # (v_circ ≈ √(50/2π) ≈ 2.82 in 2D Laplacian gravity), so they orbit
+    # cleanly around the anchor while drifting north — tests that the agent
+    # captured both the orbital force law and the drift superposition.
+    {
+        "probe_positions": [[10, 0], [0, 10], [-10, 0], [0, -10], [9, 9]],
+        "probe_velocities": [[0, 2.8], [-2.8, 0], [0, -2.8], [2.8, 0], [-2.0, 2.0]],
+        "probe_masses": [1.0, 1.0, 1.0, 1.0, 1.0],
+        "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+    },
+]
+
+
+class EtherEvaluator:
+    """
+    Evaluates a discovered law for the 26-particle ether world.
+
+    The agent's law operates on all 26 particles (1 anchor + 20 ring
+    orbiters + 5 probes). Scoring is restricted to the 5 probe particles
+    (indices 21-24, i.e. the slice 21:26) because the agent fully controls
+    their initial conditions; the ring-orbiter velocities and masses are
+    fixed by the world and are reconstructed by this evaluator from the
+    executor's stored layout.
+
+    The discovered_law signature is:
+        discovered_law(positions, velocities, masses, duration) -> positions_final
+
+    where:
+        positions  -- list of 26 [x, y] coords relative to centre at t=0
+        velocities -- list of 26 [vx, vy] at t=0
+        masses     -- list of 26 per-particle masses (truth values)
+        duration   -- float, time to simulate
+        return     -- list/array of 26 [x, y] positions at t=duration
+    """
+
+    PROBE_SLICE = slice(21, 26)
+
+    def __init__(self, executor: NBodyEtherExecutor, test_cases: list[dict] = None):
+        self.executor = executor
+        self.test_cases = test_cases or _ETHER_TEST_CASES
+
+    def evaluate(
+        self,
+        law_source: str,
+        verbose: bool = True,
+        training_trajectories: Optional[list] = None,
+        **kwargs,
+    ) -> dict:
+        discovered_law = _compile_law(law_source)
+        discovered_law, fit_info = _maybe_fit(
+            law_source,
+            discovered_law,
+            training_trajectories,
+            _ether_loss,
+            verbose,
+        )
+        with self.executor.noise_disabled():
+            ground_truths = self.executor.run(self.test_cases)
+
+        per_case_errors = []
+        all_errors = []
+        trajectories = []
+
+        bg_pos = np.asarray(self.executor._bg_positions_rel)  # (21, 2)
+        bg_vel = np.asarray(self.executor._bg_velocities)  # (21, 2)
+        bg_mass = np.asarray(self.executor._bg_masses)  # (21,)
+
+        for i, (case, gt) in enumerate(zip(self.test_cases, ground_truths)):
+            gt_positions = np.asarray(gt["positions"])  # (T, 26, 2)
+
+            probe_pos = np.asarray(case["probe_positions"])  # (5, 2)
+            probe_vel = np.asarray(case["probe_velocities"])  # (5, 2)
+            probe_mass = np.asarray(
+                case.get(
+                    "probe_masses",
+                    [self.executor.DEFAULT_PROBE_MASS] * self.executor.N_PROBES,
+                ),
+                dtype=float,
+            )
+
+            init_positions = np.vstack([bg_pos, probe_pos]).tolist()
+            init_velocities = np.vstack([bg_vel, probe_vel]).tolist()
+            init_masses = np.concatenate([bg_mass, probe_mass]).tolist()
+
+            try:
+                pred_traj = []
+                case_errors = []
+                for j, t in enumerate(case["measurement_times"]):
+                    pos_out = discovered_law(
+                        positions=init_positions,
+                        velocities=init_velocities,
+                        masses=init_masses,
+                        duration=float(t),
+                    )
+                    pos_out = np.asarray(pos_out)  # (26, 2)
+                    pred_traj.append(pos_out.tolist())
+
+                    errs = np.linalg.norm(
+                        pos_out[self.PROBE_SLICE] - gt_positions[j, self.PROBE_SLICE],
+                        axis=-1,
+                    )  # (5,)
+                    case_errors.append(float(np.mean(errs)))
+                    all_errors.extend(errs.tolist())
+
+                mean_err = float(np.mean(case_errors))
+                per_case_errors.append(mean_err)
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": pred_traj,
+                        "error": mean_err,
+                    }
+                )
+                if verbose:
+                    print(f"  Case {i+1}: mean_probe_error = {mean_err:.4f}")
+
+            except Exception as e:
+                if verbose:
+                    print(f"  Case {i+1}: ERROR -- {e}")
+                per_case_errors.append(float("inf"))
+                all_errors.append(float("inf"))
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": None,
+                        "error": float("inf"),
+                    }
+                )
+
+        mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
+        max_total = float(np.max(all_errors)) if all_errors else float("inf")
+        passed = mean_total < 0.5
+
+        if verbose:
+            print(f"\n  Mean position error (probes only): {mean_total:.4f}")
+            print(f"  Max  position error:               {max_total:.4f}")
+            print(f"  Result: {'PASS' if passed else 'FAIL'}")
+
+        return {
+            "mean_pos_error": mean_total,
+            "max_pos_error": max_total,
+            "per_case": per_case_errors,
+            "passed": passed,
+            "trajectories": trajectories,
+            "fit": fit_info,
+        }
+
+
 # -----------------
 # utility functions
 def clean_law_source(source: str) -> str:
@@ -859,21 +1023,29 @@ def _subsample_training(
     for sample in training:
         in_dict = sample.get("input", {}) or {}
         out_in = sample.get("output", {}) or {}
-        times = list(out_in.get(
-            "measurement_times",
-            in_dict.get("measurement_times", []),
-        ))
+        times = list(
+            out_in.get(
+                "measurement_times",
+                in_dict.get("measurement_times", []),
+            )
+        )
         if not times or len(times) <= max_times:
             pruned.append(sample)
             continue
 
-        sel = sorted(set(
-            np.linspace(0, len(times) - 1, max_times).round().astype(int).tolist()
-        ))
+        sel = sorted(
+            set(np.linspace(0, len(times) - 1, max_times).round().astype(int).tolist())
+        )
         out = dict(out_in)
         out["measurement_times"] = [times[i] for i in sel]
-        for key in ("positions", "pos1", "pos2",
-                    "velocities", "velocity1", "velocity2"):
+        for key in (
+            "positions",
+            "pos1",
+            "pos2",
+            "velocities",
+            "velocity1",
+            "velocity2",
+        ):
             arr = out.get(key)
             if arr is None or len(arr) != len(times):
                 continue
@@ -1050,6 +1222,89 @@ def _dark_matter_loss(law: Callable, training: list) -> float:
     return total_sq / count
 
 
+# Probe slice in the ether agent-facing 26-particle output. Mirrors
+# EtherEvaluator: scoring is restricted to the 5 probes (indices 21:26)
+# whose initial conditions the agent set, since the orbiter ring is fixed
+# by the world.
+_ETHER_PROBE_SLICE = slice(21, 26)
+
+
+def _ether_loss(law: Callable, training: list) -> float:
+    """Mean-squared probe-position error on ether-world training trajectories.
+
+    The discovered law operates on all 26 particles
+    (1 anchor + 20 ring orbiters + 5 probes) with signature
+    ``law(positions, velocities, masses, duration)``.
+
+    Each training sample's ``input`` may carry the full 26-particle initial
+    state directly (``init_positions`` / ``init_velocities`` / ``init_masses``
+    — the format produced by ``mse_fitting._one_ether_sample`` from CSV
+    rows). Otherwise this loss reconstructs the full state from the agent's
+    raw experiment input (``probe_positions`` / ``probe_velocities`` /
+    optional ``probe_masses``) plus the executor-fixed background that the
+    output always carries (``background_initial_positions/_velocities``,
+    ``particle_masses``). This dual path lets the same loss function serve
+    both the post-discovery ``_maybe_fit`` (conversation-log inputs) and the
+    mid-round ``<run_mse_fit>`` (CSV-derived inputs) flows.
+    """
+    total_sq = 0.0
+    count = 0
+    for sample in training:
+        case = sample["input"]
+        out = sample["output"]
+        times = out.get("measurement_times", case.get("measurement_times", []))
+        obs_positions = np.asarray(out.get("positions", []))
+        if obs_positions.ndim != 3 or len(times) == 0:
+            continue
+
+        init_positions = case.get("init_positions")
+        init_velocities = case.get("init_velocities")
+        init_masses = case.get("init_masses")
+
+        if init_positions is None or init_velocities is None or init_masses is None:
+            # Conversation-log path: stitch agent probe state onto the
+            # executor's fixed background state from the experiment output.
+            bg_pos = out.get("background_initial_positions")
+            bg_vel = out.get("background_initial_velocities")
+            particle_masses = out.get("particle_masses")
+            if bg_pos is None or bg_vel is None or particle_masses is None:
+                continue
+            probe_pos = case.get("probe_positions")
+            probe_vel = case.get("probe_velocities")
+            if probe_pos is None or probe_vel is None:
+                continue
+            bg_pos = np.asarray(bg_pos, dtype=float)
+            bg_vel = np.asarray(bg_vel, dtype=float)
+            init_positions = np.vstack(
+                [bg_pos, np.asarray(probe_pos, dtype=float)]
+            ).tolist()
+            init_velocities = np.vstack(
+                [bg_vel, np.asarray(probe_vel, dtype=float)]
+            ).tolist()
+            init_masses = list(particle_masses)
+
+        for j, t in enumerate(times):
+            try:
+                pred = np.asarray(
+                    law(
+                        positions=init_positions,
+                        velocities=init_velocities,
+                        masses=init_masses,
+                        duration=float(t),
+                    )
+                )
+            except Exception:
+                return float("inf")
+            if pred.shape != obs_positions[j].shape:
+                return float("inf")
+            diff = pred[_ETHER_PROBE_SLICE] - obs_positions[j, _ETHER_PROBE_SLICE]
+            total_sq += float(np.sum(diff * diff))
+            count += diff.size // 2
+    if count == 0:
+        return float("inf")
+    return total_sq / count
+
+
 def _validate_fit_spec(spec) -> list:
     """
     Normalise the user-returned fit_parameters spec into a list of
@@ -1198,9 +1453,11 @@ def _maybe_fit(
     # for hours on hundreds of training samples.
     training = _subsample_training(training_trajectories)
     if verbose and len(training) < len(training_trajectories):
-        print(f"  [fit using {len(training)}/{len(training_trajectories)} "
-              f"training trajectories (cap: {FIT_MAX_TRAJECTORIES} traj × "
-              f"{FIT_MAX_TIMES_PER_TRAJ} times)]")
+        print(
+            f"  [fit using {len(training)}/{len(training_trajectories)} "
+            f"training trajectories (cap: {FIT_MAX_TRAJECTORIES} traj × "
+            f"{FIT_MAX_TIMES_PER_TRAJ} times)]"
+        )
 
     init_kwargs = {name: init for name, init, _ in fit_spec_list}
     init_law = functools.partial(discovered_law, **init_kwargs)
@@ -1211,9 +1468,7 @@ def _maybe_fit(
 
     fit_t0 = time.monotonic()
     try:
-        fitted = _fit_law_parameters(
-            discovered_law, fit_spec_list, training, loss_fn
-        )
+        fitted = _fit_law_parameters(discovered_law, fit_spec_list, training, loss_fn)
     except Exception as e:
         if verbose:
             print(f"  [fit failed: {e}; falling back to init values]")
@@ -1229,8 +1484,10 @@ def _maybe_fit(
         )
     fit_elapsed = time.monotonic() - fit_t0
     if verbose and fit_elapsed >= FIT_TIME_BUDGET_S - 1.0:
-        print(f"  [fit hit {FIT_TIME_BUDGET_S:.0f}s wall-clock budget; "
-              f"using best-so-far parameters]")
+        print(
+            f"  [fit hit {FIT_TIME_BUDGET_S:.0f}s wall-clock budget; "
+            f"using best-so-far parameters]"
+        )
 
     bound_law = functools.partial(discovered_law, **fitted)
     try:

@@ -59,6 +59,7 @@ COLUMNS: tuple[str, ...] = (
     "p2",
     "ring_radius",
     "initial_tangential_velocity",
+    "mass",
 )
 
 
@@ -150,9 +151,13 @@ def _scalar_params(p1=None, p2=None, ring_radius=None, v_tang=None) -> dict:
     }
 
 
-def _row(time, particle_id, pos, vel, params) -> dict:
-    """Build a single CSV row dict."""
-    return {
+def _row(time, particle_id, pos, vel, params, mass=None) -> dict:
+    """Build a single CSV row dict.
+
+    `mass` is optional — None becomes an empty cell, matching how legacy
+    worlds (which don't track per-particle mass) leave the column blank.
+    """
+    row = {
         "time": float(time),
         "particle_id": int(particle_id),
         "x": float(pos[0]),
@@ -161,6 +166,9 @@ def _row(time, particle_id, pos, vel, params) -> dict:
         "vy": float(vel[1]),
         **params,
     }
+    if mass is not None:
+        row["mass"] = float(mass)
+    return row
 
 
 def _rows_two_particle(executor, exp_input, exp_output) -> list[dict]:
@@ -327,6 +335,82 @@ def _rows_dark_matter(executor, exp_input, exp_output) -> list[dict]:
     return rows
 
 
+def _rows_ether(executor, exp_input, exp_output) -> list[dict]:
+    """26 particles: 0 anchor, 1-20 ring orbiters (fixed by world), 21-25 probes.
+
+    Per-particle masses come from the executor output (`particle_masses`)
+    so that probe masses set by the agent in this experiment are recorded
+    on every row — the loss function can then reconstruct the agent-set
+    initial state purely from the CSV.
+    """
+    bg_positions = np.asarray(
+        exp_output.get("background_initial_positions", []), dtype=float
+    )
+    if bg_positions.size == 0:
+        bg_positions = np.asarray(executor._bg_positions_rel, dtype=float)
+
+    bg_velocities = np.asarray(
+        exp_output.get("background_initial_velocities", []), dtype=float
+    )
+    if bg_velocities.shape != bg_positions.shape:
+        bg_velocities = np.asarray(executor._bg_velocities, dtype=float)
+
+    probe_pos = np.asarray(exp_input["probe_positions"], dtype=float)
+    probe_vel = np.asarray(exp_input["probe_velocities"], dtype=float)
+    init_positions = np.vstack([bg_positions, probe_pos])
+    init_velocities = np.vstack([bg_velocities, probe_vel])
+
+    masses = np.asarray(exp_output.get("particle_masses", []), dtype=float)
+    n_total = init_positions.shape[0]
+    if masses.shape != (n_total,):
+        # Fallback: reconstruct from executor + agent-supplied probe_masses
+        n_bg = executor._bg_masses.shape[0]
+        n_probes = executor.N_PROBES
+        probe_masses = np.asarray(
+            exp_input.get(
+                "probe_masses",
+                [executor.DEFAULT_PROBE_MASS] * n_probes,
+            ),
+            dtype=float,
+        )
+        masses = np.concatenate([executor._bg_masses, probe_masses])
+
+    times = exp_output.get("measurement_times", [])
+    positions = exp_output.get("positions", [])
+    velocities = exp_output.get("velocities", [])
+    params = _scalar_params()
+
+    rows: list[dict] = []
+    for pid in range(n_total):
+        rows.append(
+            _row(
+                0.0,
+                pid,
+                init_positions[pid],
+                init_velocities[pid],
+                params,
+                mass=float(masses[pid]),
+            )
+        )
+    for i, t in enumerate(times):
+        if i >= len(positions) or i >= len(velocities):
+            break
+        snap_p = positions[i]
+        snap_v = velocities[i]
+        for pid in range(min(n_total, len(snap_p), len(snap_v))):
+            rows.append(
+                _row(
+                    t,
+                    pid,
+                    snap_p[pid],
+                    snap_v[pid],
+                    params,
+                    mass=float(masses[pid]),
+                )
+            )
+    return rows
+
+
 _RowBuilders = {
     "gravity": _rows_two_particle,
     "yukawa": _rows_two_particle,
@@ -337,4 +421,5 @@ _RowBuilders = {
     "species": _rows_species,
     "three_species": _rows_three_species,
     "dark_matter": _rows_dark_matter,
+    "ether": _rows_ether,
 }

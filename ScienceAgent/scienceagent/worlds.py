@@ -16,6 +16,7 @@ from scienceagent.executor import (
     NBodySpeciesExecutor,
     NBodyThreeSpeciesExecutor,
     NBodyDarkMatterExecutor,
+    NBodyEtherExecutor,
 )
 
 _GENERAL_FORM = (
@@ -85,6 +86,17 @@ _TRUE_LAW_DARK_MATTER = (
     r"$\text{Dark matter (hidden, 10 particles): source\_coupling} = 5.0$" + "\n"
     r"$\text{Probes (20–24 in agent view): source\_coupling} = 0$"
 )
+
+_TRUE_LAW_ETHER = (
+    _GENERAL_FORM + "\n\n"
+    r"$n = 0$" + "\n"
+    r"$L[\varphi] = \nabla^2\varphi$  (sourced only by the central anchor, $Q=50$)"
+    + "\n"
+    r"$\mathbf{F}_i = -\nabla\varphi_i + \alpha\,m_i\,\hat{\mathbf{y}},\quad \alpha = 0.05$"
+    + "\n"
+    r"$\text{20 ring orbiters with masses}\in\{1,2,4\};\;\text{5 probes (test particles)}$"
+)
+
 
 _TRUE_LAW_WAVE = (
     _GENERAL_FORM + "\n\n"
@@ -227,6 +239,27 @@ _RUBRIC_THREE_SPECIES = """\
      two species, or fails to distinguish the neutral probes.
  1–3 — Treats all particles as identical, or posits a wrong operator family.
    0 — Empty or irrelevant."""
+
+_RUBRIC_ETHER = """\
+10 — Identifies a static 2D Laplacian central force sourced by the single
+     anchor particle (index 0); identifies the 20 orbiters and 5 probes as
+     test particles responding to that field; identifies a uniform northward
+     drift acceleration on every particle (or, equivalently, a body-force
+     proportional to mass producing a mass-independent acceleration);
+     estimates the drift acceleration α within roughly a factor of 2 of
+     0.05; recognises that orbiter masses ∈ {1, 2, 4} but that with the
+     mass-proportional ether force the drift looks identical for all
+     particles in absolute coordinates.
+ 7–9 — Identifies the central Laplacian + uniform northward drift, but
+     misses the F ∝ m / a = const equivalence, gets α badly off, or fails
+     to identify which particle is the anchor.
+ 4–6 — Identifies the central attraction OR the drift but not both, or
+     mis-attributes the drift to a directional Laplacian / wind / repulsion
+     between specific particles.
+ 1–3 — Wrong operator family, no drift identified, or no central anchor
+     identified despite the obvious common parabolic envelope.
+   0 — Empty or irrelevant."""
+
 
 _RUBRIC_DARK_MATTER = """\
 10 — Identifies a static Laplacian with force −∇φ; concludes that hidden /
@@ -499,6 +532,58 @@ WORLDS = {
             "</run_experiment>"
         ),
     },
+    "ether": {
+        "description": "2D Laplacian central anchor + 20 orbiters with masses {1,2,4} + 5 probes, with a uniform northward 'ether' drift acceleration on every particle.",
+        "mission": (
+            "You are observing a system of 26 particles in a 2D universe. "
+            "One particle (index 0) sits near the centre and acts as a strong "
+            "central source. 20 'background' particles (indices 1–20) start "
+            "on a ring around it; their masses may not all be equal. You "
+            "control 5 probe particles (indices 21–25) that you can place and "
+            "give arbitrary masses. "
+            "Some property of empty space appears to push every particle in a "
+            "preferred direction. Your goal is to discover the full law of "
+            "motion: the central force law, any per-particle differences "
+            "(masses, couplings), and the nature of the background drift."
+        ),
+        "executor_class": "EtherExecutor",
+        "executor_kwargs": {},
+        "true_law": _TRUE_LAW_ETHER,
+        "true_law_title": "True Laplacian + Ether drift",
+        "optimal_explanation": (
+            "Twenty-six particles interact through a static 2D Laplacian field, "
+            "∇²φ = source, sourced only by the central anchor (index 0) with "
+            "coupling 50. The 20 orbiters (masses cycled through 1, 2, 4) and 5 "
+            "probes are test particles (zero source coupling) feeling -∇φ from "
+            "the anchor. Layered on top is a uniform 'ether' field that exerts a "
+            "body-force F = α·m·ŷ on every particle, with α ≈ 0.05; because the "
+            "force is exactly proportional to mass, every particle picks up the "
+            "same northward acceleration α regardless of mass — a parabolic drift "
+            "common to anchor, orbiters, and probes alike, on top of the orbital "
+            "motion."
+        ),
+        "explanation_rubric": _RUBRIC_ETHER,
+        "system_prompt": "PhysicsSchool/prompts/run_experiments_ether.md",
+        "law_stub": (
+            "def discovered_law(positions, velocities, masses, duration):\n"
+            "    # positions: list of 26 [x, y] coords relative to centre\n"
+            "    # velocities: list of 26 [vx, vy]\n"
+            "    # masses: list of 26 per-particle masses\n"
+            "    # duration: float, simulate from t=0 to t=duration\n"
+            "    # return: list of 26 [x, y] final positions\n"
+            "    # NOTE: scoring focuses on the 5 PROBE trajectories (indices 21-25)\n"
+            "    return final_positions\n"
+        ),
+        "experiment_format": (
+            '<run_experiment>[{"probe_positions": '
+            "[[8,0],[0,8],[-8,0],[0,-8],[10,10]], "
+            '"probe_velocities": '
+            "[[0,0],[0,0],[0,0],[0,0],[0,0]], "
+            '"probe_masses": [1.0, 1.0, 2.0, 4.0, 1.0], '
+            '"measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]}]'
+            "</run_experiment>"
+        ),
+    },
     "circle": {
         "description": "Fractional Laplacian (alpha=0.75) — 11 particles, 1 center + 10 ring.",
         "mission": (
@@ -548,6 +633,7 @@ _NBODY_EXECUTOR_CLASSES = {
     "SpeciesExecutor": NBodySpeciesExecutor,
     "ThreeSpeciesExecutor": NBodyThreeSpeciesExecutor,
     "DarkMatterExecutor": NBodyDarkMatterExecutor,
+    "EtherExecutor": NBodyEtherExecutor,
 }
 
 _FIELD_EXECUTOR_CLASSES = {
@@ -556,6 +642,8 @@ _FIELD_EXECUTOR_CLASSES = {
     "SpeciesExecutor": SpeciesExecutor,
     "ThreeSpeciesExecutor": ThreeSpeciesExecutor,
     "DarkMatterExecutor": DarkMatterExecutor,
+    # NOTE: EtherExecutor is nbody-only — the uniform body-force has no
+    # equivalent in the FFT FieldSampler operator set.
 }
 
 
@@ -590,14 +678,22 @@ def get_world(name: str, engine: str = "field", **executor_overrides) -> dict:
             raise ValueError(
                 f"World {name!r} has no NBody twin (engine='nbody' "
                 "supports only worlds with temporal_order=0 and a single "
-                "static PDE operator).  Use engine='field' instead.")
+                "static PDE operator).  Use engine='field' instead."
+            )
         # Diffusion / wave have temporal_order != 0 → reject early.
         if kwargs.get("temporal_order", 0) != 0:
             raise ValueError(
                 f"engine='nbody' cannot run world {name!r}: it requires a "
-                "time-evolving field (temporal_order != 0).")
+                "time-evolving field (temporal_order != 0)."
+            )
         executor_cls = _NBODY_EXECUTOR_CLASSES[executor_class_name]
     else:
+        if executor_class_name not in _FIELD_EXECUTOR_CLASSES:
+            raise ValueError(
+                f"World {name!r} has no FieldSampler implementation "
+                "(its physics — e.g. uniform body-forces — has no equivalent "
+                "in the FFT operator set). Use engine='nbody' instead."
+            )
         executor_cls = _FIELD_EXECUTOR_CLASSES[executor_class_name]
 
     executor = executor_cls(**kwargs)

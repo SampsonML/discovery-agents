@@ -16,18 +16,19 @@ name: test_run
 
 # -----------------------------------------
 # models to test on (will run sequentially)
+# check naming conventions of error models
 models:
   - claude-opus-4-6
   - claude-sonnet-4-6
   - claude-haiku-4-5
   - together/Qwen/Qwen3-235B-A22B-Instruct-2507-tput
   - together/Qwen/Qwen3-Coder-480B-A35B-Instruct
-  - together/Qwen/Qwen3.6-Plus
+  - together/Qwen/Qwen3.6-Plus # error
   - together/deepseek-ai/DeepSeek-V3.1
   - together/deepseek-ai/DeepSeek-R1
-  - together/deepseek-ai/DeepSeek-V4-Pro
+  - together/deepseek-ai/DeepSeek-V4-Pro # error
   - together/meta-llama/Llama-3.3-70B-Instruct-Turbo
-  - together/meta-llama/Llama-4-Scout-17B-16E-Instruct
+  - together/meta-llama/Llama-4-Scout-17B-16E-Instruct # error
   - together/openai/gpt-oss-120b
   - azure/gpt-5.4-pro
   - azure/gpt-5.4
