@@ -28,7 +28,9 @@ from typing import Optional
 
 # Per-request wall-clock cap for any provider HTTP call. Stops a stalled
 # upstream (Together / OpenRouter / HF / etc.) from hanging the whole run.
-HTTP_TIMEOUT_S = 180.0
+# 5 minutes accommodates reasoning models (gpt-5.4-pro, DeepSeek-R1, etc.)
+# that occasionally need extended thinking time on a fresh world prompt.
+HTTP_TIMEOUT_S = 300.0
 
 
 def complete(

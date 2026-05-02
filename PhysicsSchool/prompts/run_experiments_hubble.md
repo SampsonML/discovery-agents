@@ -99,7 +99,7 @@ final_state = sol.y[:, -1]
 Vectorise pairwise force computations with NumPy broadcasting (e.g. `r = pos[:, None, :] - pos[None, :, :]`) — never a tight Python double-loop over particles.
 
 **Optional parameter fitting:**
-You may declare up to 3 free parameters in your law and ask the evaluator to fit them on your training data. Add a `fit_parameters()` function alongside `discovered_law` returning a dict of `{name: {"init": float, "bounds": [lo, hi]}}`. The same parameter names must appear as keyword arguments (with default values) on `discovered_law`. The evaluator will run `scipy.optimize.minimize` against the experiments you've collected this run.
+You may declare up to 5 free parameters in your law and ask the evaluator to fit them on your training data. Add a `fit_parameters()` function alongside `discovered_law` returning a dict of `{name: {"init": float, "bounds": [lo, hi]}}`. The same parameter names must appear as keyword arguments (with default values) on `discovered_law`. The evaluator will run `scipy.optimize.minimize` against the experiments you've collected this run.
 
 **Submission format:**
 <final_law>

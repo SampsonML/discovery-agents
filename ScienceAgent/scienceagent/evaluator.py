@@ -18,9 +18,9 @@ from scienceagent.executor import (
     NBodyHubbleExecutor,
 )
 
-MAX_FIT_PARAMETERS = 3
-FIT_MAXITER = 15
-FIT_TIME_BUDGET_S = 60.0  # wall-clock cap on a single scipy.optimize.minimize call
+MAX_FIT_PARAMETERS = 5
+FIT_MAXITER = 50
+FIT_TIME_BUDGET_S = 180.0  # wall-clock cap on a single scipy.optimize.minimize call
 
 # Wall-clock cap for a single discovered_law call. Stops a pathological law
 # (Python for-loop with tiny dt, stiff ODE, infinite loop) from hanging the

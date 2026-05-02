@@ -80,7 +80,7 @@ Once the system tells you it is your final round, submit your findings as a sing
 7. Import any necessary libraries inside the function body (e.g. math, numpy, etc.) if needed.
 
 **Implementation note — time integration:**
-The evaluator calls your `discovered_law` many times — once per (case × measurement time) during scoring, and additionally inside `scipy.optimize` when `fit_parameters()` declares free parameters. **Do NOT write Python `for` loops with small fixed `dt`** (e.g. `for _ in range(int(duration/dt))` with `dt=1e-3`) — they dominate runtime and can make a single law evaluation take seconds instead of milliseconds. **Use `scipy.integrate.solve_ivp`** with adaptive RK45 instead; it picks step sizes automatically and reaches comparable accuracy with 10–100× fewer steps. The fit runs `scipy.optimize.minimize` under a 60-second wall-clock budget — if your law is too slow, fitting will exit early with the best parameters found so far (likely suboptimal), which hurts your score directly.
+The evaluator calls your `discovered_law` many times — once per (case × measurement time) during scoring, and additionally inside `scipy.optimize` when `fit_parameters()` declares free parameters. **Do NOT write Python `for` loops with small fixed `dt`** (e.g. `for _ in range(int(duration/dt))` with `dt=1e-3`) — they dominate runtime and can make a single law evaluation take seconds instead of milliseconds. **Use `scipy.integrate.solve_ivp`** with adaptive RK45 instead; it picks step sizes automatically and reaches comparable accuracy with 10–100× fewer steps. The fit runs `scipy.optimize.minimize` under a 180-second wall-clock budget — if your law is too slow, fitting will exit early with the best parameters found so far (likely suboptimal), which hurts your score directly.
 
 Skeleton:
 ```python
@@ -94,7 +94,7 @@ final_state = sol.y[:, -1]
 If your law genuinely cannot be expressed as an ODE, vectorise with NumPy operations on whole arrays — never a tight Python loop over scalars.
 
 **Fittable Parameters (optional, recommended when you have uncertain constants):**
-Alongside `discovered_law`, you may define a second function `fit_parameters()` that returns a dict describing the free parameters the evaluator should fit. Each entry must provide a reasonable starting value (`init`) and physically plausible bounds (`bounds`) — the bounds are required and matter, because they define the search space. You may declare at most **3** free parameters; lean on `discovered_law` to hard-code anything you already know.
+Alongside `discovered_law`, you may define a second function `fit_parameters()` that returns a dict describing the free parameters the evaluator should fit. Each entry must provide a reasonable starting value (`init`) and physically plausible bounds (`bounds`) — the bounds are required and matter, because they define the search space. You may declare at most **5** free parameters; lean on `discovered_law` to hard-code anything you already know.
 
 ```
 def fit_parameters():
