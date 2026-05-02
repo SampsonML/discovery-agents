@@ -205,7 +205,24 @@ def main():
             csv_path=csv_path,
             run_id=run_id,
         )
-        print(f"Trajectory CSV: {csv_path}  (run_id={run_id})")
+        # Always remove the per-run trajectory CSV on exit. The CSV is only
+        # consumed by the mid-round <run_mse_fit> tool during the agent
+        # loop; by the time the process is exiting, it has served its
+        # purpose. atexit fires on normal exit *and* after exceptions
+        # propagate up, so a crashed run still leaves no leftover file.
+        import atexit
+
+        def _cleanup_trajectory_csv(path=csv_path):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        atexit.register(_cleanup_trajectory_csv)
+        print(
+            f"Trajectory CSV: {csv_path}  (run_id={run_id})  "
+            f"[auto-removed on exit]"
+        )
 
     agent_kwargs = dict(
         model=args.model,
