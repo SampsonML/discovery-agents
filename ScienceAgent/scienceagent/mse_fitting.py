@@ -69,6 +69,10 @@ _LOSS_FNS: dict[str, Callable] = {
     "three_species": _three_species_loss,
     "dark_matter": _dark_matter_loss,
     "ether": _ether_loss,
+    # Hubble has the same agent-facing law shape as ether (26 particles,
+    # masses argument, scoring on the probe slice 21:26), so the same
+    # loss function applies.
+    "hubble": _ether_loss,
 }
 
 
@@ -207,7 +211,8 @@ def _experiments_to_training(
     the loss functions in evaluator.py expect."""
     if world == "circle":
         return [_one_circle_sample(e) for e in experiments]
-    if world == "ether":
+    if world in ("ether", "hubble"):
+        # Same on-CSV layout — 26 particles + per-particle masses.
         return [_one_ether_sample(e) for e in experiments]
     if world in ("three_species", "dark_matter"):
         # Both worlds use the same shape: full N-particle initial state

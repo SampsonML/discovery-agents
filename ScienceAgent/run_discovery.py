@@ -121,6 +121,7 @@ def main():
         ThreeSpeciesEvaluator,
         DarkMatterEvaluator,
         EtherEvaluator,
+        HubbleEvaluator,
         ExplanationJudge,
         _extract_training_trajectories,
         clean_law_source,
@@ -249,6 +250,8 @@ def main():
         evaluator = DarkMatterEvaluator(executor)
     elif args.world == "ether":
         evaluator = EtherEvaluator(executor)
+    elif args.world == "hubble":
+        evaluator = HubbleEvaluator(executor)
     else:
         evaluator = Evaluator(executor)
 
@@ -264,6 +267,7 @@ def main():
         "wave",
         "circle",
         "ether",
+        "hubble",
     }
     eval_kwargs = {"verbose": True}
     if args.world in _FIT_WORLDS:
@@ -321,6 +325,13 @@ def main():
             )
             _plot_law(clean_law_source(law_source), args.world, args.model, law_path)
         elif args.world == "ether":
+            _plot_ether_trajectories(
+                results["trajectories"], args.world, args.model, plot_path
+            )
+            _plot_law(clean_law_source(law_source), args.world, args.model, law_path)
+        elif args.world == "hubble":
+            # Hubble shares the 26-particle anchor + ring + probes layout, so
+            # the ether plotter renders correctly for it too.
             _plot_ether_trajectories(
                 results["trajectories"], args.world, args.model, plot_path
             )

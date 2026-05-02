@@ -17,6 +17,7 @@ from scienceagent.executor import (
     NBodyThreeSpeciesExecutor,
     NBodyDarkMatterExecutor,
     NBodyEtherExecutor,
+    NBodyHubbleExecutor,
 )
 
 _GENERAL_FORM = (
@@ -94,6 +95,17 @@ _TRUE_LAW_ETHER = (
     + "\n"
     r"$\mathbf{F}_i = -\nabla\varphi_i + \alpha\,m_i\,\hat{\mathbf{y}},\quad \alpha = 0.05$"
     + "\n"
+    r"$\text{20 ring orbiters with masses}\in\{1,2,4\};\;\text{5 probes (test particles)}$"
+)
+
+
+_TRUE_LAW_HUBBLE = (
+    _GENERAL_FORM + "\n\n"
+    r"$n = 0$" + "\n"
+    r"$L[\varphi] = \nabla^2\varphi$  (sourced only by the central anchor, $Q=50$)"
+    + "\n"
+    r"$\mathbf{a}_i = -\nabla\varphi_i / m_i + H\,\mathbf{r}_i,\quad H = 0.05$" + "\n"
+    r"$r_{\rm crit} = \sqrt{Q/(2\pi H)} \approx 12.6$" + "\n"
     r"$\text{20 ring orbiters with masses}\in\{1,2,4\};\;\text{5 probes (test particles)}$"
 )
 
@@ -258,6 +270,28 @@ _RUBRIC_ETHER = """\
      between specific particles.
  1–3 — Wrong operator family, no drift identified, or no central anchor
      identified despite the obvious common parabolic envelope.
+   0 — Empty or irrelevant."""
+
+
+_RUBRIC_HUBBLE = """\
+10 — Identifies a static 2D Laplacian central force sourced by the single
+     anchor particle (index 0); identifies the 20 orbiters and 5 probes as
+     test particles; identifies a *position-dependent* outward body-force
+     that grows linearly with distance from the anchor (a = H · r,
+     mass-independent), recognises a critical radius beyond which probes
+     accelerate outward and orbits unbind, and estimates H within roughly
+     a factor of 2 of 0.05.
+ 7–9 — Identifies the central Laplacian and an outward repulsive effect at
+     large radii, but misses the linear-in-r structure (e.g. assumes a
+     constant outward force), gets H badly off, or attributes the outward
+     push to a particular particle rather than to space itself.
+ 4–6 — Identifies the central attraction but treats the outward effect
+     qualitatively only — e.g. notes "orbits unbind at large r" without
+     distinguishing a body-force from a missing-mass / dark-matter
+     hypothesis.
+ 1–3 — Wrong operator family, or interprets the outward push as random
+     noise, drag, or some pairwise repulsion between probes/orbiters
+     despite the obvious radial-from-anchor pattern.
    0 — Empty or irrelevant."""
 
 
@@ -584,6 +618,63 @@ WORLDS = {
             "</run_experiment>"
         ),
     },
+    "hubble": {
+        "description": "2D Laplacian central anchor + 20 orbiters with masses {1,2,4} + 5 probes, with a position-dependent radial 'Hubble flow' that pushes every particle outward proportional to its distance from the centre.",
+        "mission": (
+            "You are observing a system of 26 particles in a 2D universe. "
+            "One particle (index 0) sits at the centre and acts as a strong "
+            "central source. 20 'background' particles (indices 1–20) start "
+            "on a ring around it; their masses may not all be equal. You "
+            "control 5 probe particles (indices 21–25) — you set their "
+            "positions, velocities, AND masses. "
+            "Particles far from the centre seem to behave anomalously — "
+            "as if some property of empty space pushes them outward. The "
+            "effect is hard to spot near the centre, where the central "
+            "force dominates. Your goal is to discover the full law of "
+            "motion: the central force law, the dependence on distance "
+            "and mass, and the nature of any background effect."
+        ),
+        "executor_class": "HubbleExecutor",
+        "executor_kwargs": {},
+        "true_law": _TRUE_LAW_HUBBLE,
+        "true_law_title": "True Laplacian + Hubble flow",
+        "optimal_explanation": (
+            "Twenty-six particles interact through a static 2D Laplacian field, "
+            "∇²φ = source, sourced only by the central anchor (index 0) with "
+            "coupling 50. The 20 orbiters (masses cycled through 1, 2, 4) and 5 "
+            "probes are test particles (zero source coupling) feeling -∇φ from "
+            "the anchor. Layered on top is a Hubble-flow body-force that gives "
+            "every particle an additional outward radial acceleration "
+            "a = H · r with H ≈ 0.05, where r is the displacement from the "
+            "centre. Because the force is mass-independent, the same H acts on "
+            "every particle. The critical radius where Hubble outward push "
+            "balances central inward gravity is r_crit = √(Q/(2πH)) ≈ 12.6: "
+            "probes at smaller r remain bound and orbit (with slightly reduced "
+            "effective gravity), while probes outside r_crit accelerate outward "
+            "and escape."
+        ),
+        "explanation_rubric": _RUBRIC_HUBBLE,
+        "system_prompt": "PhysicsSchool/prompts/run_experiments_hubble.md",
+        "law_stub": (
+            "def discovered_law(positions, velocities, masses, duration):\n"
+            "    # positions: list of 26 [x, y] coords relative to centre\n"
+            "    # velocities: list of 26 [vx, vy]\n"
+            "    # masses: list of 26 per-particle masses\n"
+            "    # duration: float, simulate from t=0 to t=duration\n"
+            "    # return: list of 26 [x, y] final positions\n"
+            "    # NOTE: scoring focuses on the 5 PROBE trajectories (indices 21-25)\n"
+            "    return final_positions\n"
+        ),
+        "experiment_format": (
+            '<run_experiment>[{"probe_positions": '
+            "[[5,0],[10,0],[15,0],[18,0],[0,12]], "
+            '"probe_velocities": '
+            "[[0,0],[0,0],[0,0],[0,0],[0,0]], "
+            '"probe_masses": [1.0, 1.0, 2.0, 4.0, 1.0], '
+            '"measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]}]'
+            "</run_experiment>"
+        ),
+    },
     "circle": {
         "description": "Fractional Laplacian (alpha=0.75) — 11 particles, 1 center + 10 ring.",
         "mission": (
@@ -634,6 +725,7 @@ _NBODY_EXECUTOR_CLASSES = {
     "ThreeSpeciesExecutor": NBodyThreeSpeciesExecutor,
     "DarkMatterExecutor": NBodyDarkMatterExecutor,
     "EtherExecutor": NBodyEtherExecutor,
+    "HubbleExecutor": NBodyHubbleExecutor,
 }
 
 _FIELD_EXECUTOR_CLASSES = {
@@ -642,8 +734,9 @@ _FIELD_EXECUTOR_CLASSES = {
     "SpeciesExecutor": SpeciesExecutor,
     "ThreeSpeciesExecutor": ThreeSpeciesExecutor,
     "DarkMatterExecutor": DarkMatterExecutor,
-    # NOTE: EtherExecutor is nbody-only — the uniform body-force has no
-    # equivalent in the FFT FieldSampler operator set.
+    # NOTE: EtherExecutor and HubbleExecutor are nbody-only — their
+    # body-force terms have no equivalent in the FFT FieldSampler
+    # operator set.
 }
 
 

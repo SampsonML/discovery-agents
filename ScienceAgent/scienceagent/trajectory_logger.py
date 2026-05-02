@@ -411,6 +411,13 @@ def _rows_ether(executor, exp_input, exp_output) -> list[dict]:
     return rows
 
 
+# The Hubble world has the same on-CSV shape as ether (26 particles, masses
+# in the per-row mass column, agent-controllable probes); the row builder is
+# identical. We alias ``_rows_hubble = _rows_ether`` to make the registry
+# explicit without duplicating code.
+_rows_hubble = _rows_ether
+
+
 _RowBuilders = {
     "gravity": _rows_two_particle,
     "yukawa": _rows_two_particle,
@@ -422,4 +429,5 @@ _RowBuilders = {
     "three_species": _rows_three_species,
     "dark_matter": _rows_dark_matter,
     "ether": _rows_ether,
+    "hubble": _rows_hubble,
 }

@@ -15,6 +15,7 @@ from scienceagent.executor import (
     ThreeSpeciesExecutor,
     DarkMatterExecutor,
     NBodyEtherExecutor,
+    NBodyHubbleExecutor,
 )
 
 MAX_FIT_PARAMETERS = 3
@@ -907,6 +908,168 @@ class EtherEvaluator:
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
         passed = mean_total < 0.5
+
+        if verbose:
+            print(f"\n  Mean position error (probes only): {mean_total:.4f}")
+            print(f"  Max  position error:               {max_total:.4f}")
+            print(f"  Result: {'PASS' if passed else 'FAIL'}")
+
+        return {
+            "mean_pos_error": mean_total,
+            "max_pos_error": max_total,
+            "per_case": per_case_errors,
+            "passed": passed,
+            "trajectories": trajectories,
+            "fit": fit_info,
+        }
+
+
+_HUBBLE_TEST_CASES = [
+    # Mixed radii with stable circular tangential velocities inside r_crit
+    # so probes orbit cleanly (no close encounters with the anchor), plus
+    # outer probes at rest that escape outward under the Hubble flow.
+    # Hubble-corrected v_circ = √(Q/(2π) − H·r²):
+    #   r=6  → v ≈ 2.48,  r=10 → v ≈ 1.72.
+    # Outer probes at r=15 and r=18 are well outside r_crit≈12.6.
+    # Mass mix exercises mass-independence of both terms.
+    {
+        "probe_positions": [[6, 0], [0, 10], [15, 0], [-15, 0], [0, 18]],
+        "probe_velocities": [[0, 2.48], [-1.72, 0], [0, 0], [0, 0], [0, 0]],
+        "probe_masses": [1.0, 2.0, 4.0, 1.0, 2.0],
+        "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+    },
+    # Symmetric probes at r=10 in 4 cardinal directions on circular orbits,
+    # plus one escape probe at r=16. Tests rotational symmetry of the
+    # Hubble flow and the agent's reproduction of the radial structure
+    # against a clean orbital benchmark.
+    {
+        "probe_positions": [[10, 0], [0, 10], [-10, 0], [0, -10], [16, 0]],
+        "probe_velocities": [[0, 1.72], [-1.72, 0], [0, -1.72], [1.72, 0], [0, 0]],
+        "probe_masses": [1.0, 1.0, 1.0, 1.0, 1.0],
+        "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+    },
+]
+
+
+class HubbleEvaluator:
+    """
+    Evaluates a discovered law for the 26-particle Hubble-flow world.
+
+    Identical scoring shape to ``EtherEvaluator`` (probe-slice 21:26 of
+    the 26-particle output), but the test cases are designed to span a
+    range of radii — both inside and outside the critical radius
+    ``r_crit ≈ 12.6`` where the Hubble outward push balances central
+    inward gravity. A correct law must reproduce both bound orbits at
+    small ``r`` and outward escape at large ``r``.
+
+    The discovered_law signature mirrors ether:
+        discovered_law(positions, velocities, masses, duration) -> positions_final
+    """
+
+    PROBE_SLICE = slice(21, 26)
+
+    def __init__(self, executor, test_cases: list[dict] = None):
+        self.executor = executor
+        self.test_cases = test_cases or _HUBBLE_TEST_CASES
+
+    def evaluate(
+        self,
+        law_source: str,
+        verbose: bool = True,
+        training_trajectories: Optional[list] = None,
+        **kwargs,
+    ) -> dict:
+        discovered_law = _compile_law(law_source)
+        discovered_law, fit_info = _maybe_fit(
+            law_source,
+            discovered_law,
+            training_trajectories,
+            _ether_loss,  # same shape: probe slice 21:26 of 26-particle output
+            verbose,
+        )
+        with self.executor.noise_disabled():
+            ground_truths = self.executor.run(self.test_cases)
+
+        per_case_errors = []
+        all_errors = []
+        trajectories = []
+
+        bg_pos = np.asarray(self.executor._bg_positions_rel)  # (21, 2)
+        bg_vel = np.asarray(self.executor._bg_velocities)  # (21, 2)
+        bg_mass = np.asarray(self.executor._bg_masses)  # (21,)
+
+        for i, (case, gt) in enumerate(zip(self.test_cases, ground_truths)):
+            gt_positions = np.asarray(gt["positions"])  # (T, 26, 2)
+
+            probe_pos = np.asarray(case["probe_positions"])  # (5, 2)
+            probe_vel = np.asarray(case["probe_velocities"])  # (5, 2)
+            probe_mass = np.asarray(
+                case.get(
+                    "probe_masses",
+                    [self.executor.DEFAULT_PROBE_MASS] * self.executor.N_PROBES,
+                ),
+                dtype=float,
+            )
+
+            init_positions = np.vstack([bg_pos, probe_pos]).tolist()
+            init_velocities = np.vstack([bg_vel, probe_vel]).tolist()
+            init_masses = np.concatenate([bg_mass, probe_mass]).tolist()
+
+            try:
+                pred_traj = []
+                case_errors = []
+                for j, t in enumerate(case["measurement_times"]):
+                    pos_out = discovered_law(
+                        positions=init_positions,
+                        velocities=init_velocities,
+                        masses=init_masses,
+                        duration=float(t),
+                    )
+                    pos_out = np.asarray(pos_out)  # (26, 2)
+                    pred_traj.append(pos_out.tolist())
+
+                    errs = np.linalg.norm(
+                        pos_out[self.PROBE_SLICE] - gt_positions[j, self.PROBE_SLICE],
+                        axis=-1,
+                    )  # (5,)
+                    case_errors.append(float(np.mean(errs)))
+                    all_errors.extend(errs.tolist())
+
+                mean_err = float(np.mean(case_errors))
+                per_case_errors.append(mean_err)
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": pred_traj,
+                        "error": mean_err,
+                    }
+                )
+                if verbose:
+                    print(f"  Case {i+1}: mean_probe_error = {mean_err:.4f}")
+
+            except Exception as e:
+                if verbose:
+                    print(f"  Case {i+1}: ERROR -- {e}")
+                per_case_errors.append(float("inf"))
+                all_errors.append(float("inf"))
+                trajectories.append(
+                    {
+                        "case": i + 1,
+                        "times": case["measurement_times"],
+                        "gt": gt_positions.tolist(),
+                        "pred": None,
+                        "error": float("inf"),
+                    }
+                )
+
+        mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
+        max_total = float(np.max(all_errors)) if all_errors else float("inf")
+        # Looser threshold than ether: outer probes outside r_crit accelerate
+        # rapidly, so absolute position errors grow large; 1.0 is calibrated
+        # to the typical scale of the t=10 escape distance.
+        passed = mean_total < 1.0
 
         if verbose:
             print(f"\n  Mean position error (probes only): {mean_total:.4f}")

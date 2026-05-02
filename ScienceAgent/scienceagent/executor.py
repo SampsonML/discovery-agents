@@ -20,6 +20,8 @@ import sys
 import os
 from contextlib import contextmanager
 
+import jax.numpy as jnp
+
 # Make PhysicsSchool importable when running from repo root
 _repo_root = os.path.join(os.path.dirname(__file__), "..", "..", "PhysicsSchool")
 if _repo_root not in sys.path:
@@ -1795,6 +1797,225 @@ class NBodyEtherExecutor(_NoisyExecutorMixin):
             softening=self.softening,
             spatial_dimensions=2,
             external_acceleration=np.array([0.0, self.ETHER_ALPHA]),
+        )
+        positions_rec, velocities_rec = _record_at_times(
+            sim, self.dt, duration, measurement_times
+        )
+
+        return {
+            "measurement_times": measurement_times,
+            "positions": [
+                self._noisy_positions(p - centre).tolist() for p in positions_rec
+            ],
+            "velocities": [v.tolist() for v in velocities_rec],
+            "particle_masses": masses.tolist(),
+            "background_initial_positions": self._bg_positions_rel.tolist(),
+            "background_initial_velocities": self._bg_velocities.tolist(),
+        }
+
+
+class NBodyHubbleExecutor(_NoisyExecutorMixin):
+    """
+    Hubble-flow world: 21 background particles (1 anchor + 20 ring orbiters)
+    + 5 probes = 26 total, all visible to the agent.
+
+    Hidden physics:
+      * 2D Laplacian central attraction sourced by particle 0 (the anchor)
+        with source_coupling = 50.  Anchor mass = 1e15 (effectively immobile)
+        and force_charge = 0 (no pairwise response).
+      * 20 orbiters are test particles (source_charge = 0) with masses
+        cycling through {1, 2, 4} (7 / 7 / 6 split).  All have force_charge
+        = mass; in 2D Laplacian gravity their orbital speed is mass-
+        independent.
+      * 5 probes are test particles with default mass 1.0 and force_charge =
+        mass.
+      * "Hubble flow" body-force: every particle gets an *additional*
+        radially-outward acceleration linear in distance from the domain
+        centre, ``a_hubble = H · r`` with H ≈ 0.05.  Mass-independent.
+        Locally invisible (small near the anchor where central gravity
+        dominates), but probes placed far out are pushed outward —
+        exposing the linear-in-r law.
+
+    Critical radius where Hubble outward force balances central inward
+    gravity: ``r_crit = √(Q_anchor / (2π H)) ≈ 12.6`` for the default
+    parameters.  Inside ``r_crit`` orbits are bound (with reduced effective
+    gravity); outside, probes accelerate outward.
+
+    Initial layout:
+      * Anchor at the domain centre (so its ``a_hubble`` is exactly zero).
+      * Orbiters on a ring at radius 5.0, equally spaced, with
+        Hubble-corrected circular tangential velocity
+        ``v² = Q_anchor / (2π) − H · r²``.
+
+    Experiment format:
+        {
+            "probe_positions":  [[x, y], ...],     # 5 positions (relative to centre)
+            "probe_velocities": [[vx, vy], ...],   # 5 initial velocities
+            "probe_masses":     [m, ...],          # OPTIONAL 5 masses (default 1.0)
+            "measurement_times": [float, ...]
+        }
+
+    Returns:
+        {
+            "measurement_times": [...],
+            "positions":     [[[x,y], ...], ...],  # (T, 26, 2), domain-centred
+            "velocities":    [[[vx,vy], ...], ...],# (T, 26, 2)
+            "particle_masses": [m0, ..., m25],     # length-26 mass array
+            "background_initial_positions":  [[x,y], ...]   # (21, 2)
+            "background_initial_velocities": [[vx,vy], ...] # (21, 2)
+        }
+    """
+
+    N_BACKGROUND = 21  # 1 anchor + 20 orbiters
+    N_RING = 20
+    N_PROBES = 5
+    N_TOTAL = 26
+
+    ANCHOR_INDEX = 0
+    RING_INDICES = list(range(1, 21))
+    PROBE_INDICES = list(range(21, 26))
+
+    ANCHOR_MASS = 1e15
+    ANCHOR_SOURCE = 50.0
+    RING_RADIUS = 5.0
+
+    MASS_PATTERN = (1.0, 2.0, 4.0)
+    DEFAULT_PROBE_MASS = 1.0
+
+    # Hubble parameter — gives a_hubble = H · r outward, mass-independent.
+    HUBBLE_H = 0.05
+
+    def __init__(
+        self,
+        operators=None,
+        temporal_order=0,
+        grid_size=None,  # accepted+ignored for API parity
+        domain_size=50.0,
+        dt=0.005,
+        noise_std=0.0,
+        noise_seed=None,
+        integrator=_NBODY_INTEGRATOR_DEFAULT,
+        softening=_NBODY_SOFTENING_DEFAULT,
+    ):
+        # Hidden operator: standard 2D Laplacian (gravity-like).
+        self.operators = operators or [
+            {"type": "laplacian", "params": {"strength": 1.0}}
+        ]
+        self.temporal_order = temporal_order
+        self.grid_size = grid_size
+        self.domain_size = float(domain_size)
+        self.dt = float(dt)
+        self.integrator = integrator
+        self.softening = float(softening)
+        self._init_noise(noise_std, noise_seed)
+        _check_nbody_supports(temporal_order)
+        self._force_law, self._potential_law = _operator_to_pairwise(self.operators)
+
+        # Fixed orbiter ring layout (mass class cycled as 1, 2, 4, 1, 2, 4, …)
+        angles = np.linspace(0, 2 * np.pi, self.N_RING, endpoint=False)
+        self._ring_positions_rel = np.column_stack(
+            [
+                self.RING_RADIUS * np.cos(angles),
+                self.RING_RADIUS * np.sin(angles),
+            ]
+        )
+        self._ring_masses = np.array(
+            [self.MASS_PATTERN[i % len(self.MASS_PATTERN)] for i in range(self.N_RING)],
+            dtype=np.float64,
+        )
+        # Hubble-corrected circular orbital velocity:
+        #   v² = G · Q_anchor / (2π) − H · r²
+        # The ``− H · r²`` term reduces the inward effective gravity by the
+        # Hubble outward push.  At r=5, H=0.05, Q=50: v² ≈ 7.96 − 1.25 = 6.71.
+        v_circ_sq = (
+            self.ANCHOR_SOURCE / (2 * np.pi) - self.HUBBLE_H * self.RING_RADIUS**2
+        )
+        if v_circ_sq <= 0:
+            raise ValueError(
+                f"Hubble outward force exceeds central gravity at r={self.RING_RADIUS}; "
+                f"reduce HUBBLE_H or increase ANCHOR_SOURCE."
+            )
+        v_circ = float(np.sqrt(v_circ_sq))
+        # CCW tangent: (-sin, cos)
+        self._ring_velocities = v_circ * np.column_stack(
+            [-np.sin(angles), np.cos(angles)]
+        )
+
+        self._bg_positions_rel = np.vstack(
+            [np.array([[0.0, 0.0]]), self._ring_positions_rel]
+        )
+        self._bg_velocities = np.vstack([np.array([[0.0, 0.0]]), self._ring_velocities])
+        self._bg_masses = np.concatenate(
+            [np.array([self.ANCHOR_MASS]), self._ring_masses]
+        )
+
+    def run(self, experiments):
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, s):
+        return json.dumps(self.run(json.loads(s)), indent=2)
+
+    def _run_one(self, exp):
+        probe_pos_rel = np.array(exp["probe_positions"], dtype=np.float64)
+        probe_vel = np.array(exp["probe_velocities"], dtype=np.float64)
+        measurement_times = sorted(exp["measurement_times"])
+        duration = max(float(exp.get("duration", max(measurement_times))), 5.0)
+
+        assert probe_pos_rel.shape == (self.N_PROBES, 2)
+        assert probe_vel.shape == (self.N_PROBES, 2)
+
+        if "probe_masses" in exp and exp["probe_masses"] is not None:
+            probe_masses = np.array(exp["probe_masses"], dtype=np.float64)
+            assert probe_masses.shape == (self.N_PROBES,)
+        else:
+            probe_masses = np.full(
+                self.N_PROBES, self.DEFAULT_PROBE_MASS, dtype=np.float64
+            )
+
+        centre = self.domain_size / 2.0
+        positions = np.vstack(
+            [
+                self._bg_positions_rel + centre,
+                probe_pos_rel + centre,
+            ]
+        )
+        velocities = np.vstack([self._bg_velocities, probe_vel])
+
+        masses = np.concatenate([self._bg_masses, probe_masses])
+
+        # Source charges: anchor only.  Force charges: anchor 0, orbiters
+        # and probes equal to their mass (Newton convention so 2D-Laplacian
+        # circular orbits are mass-independent in r).
+        source_charges = np.zeros(self.N_TOTAL)
+        source_charges[self.ANCHOR_INDEX] = self.ANCHOR_SOURCE
+        force_charges = np.zeros(self.N_TOTAL)
+        force_charges[self.RING_INDICES] = self._ring_masses
+        force_charges[self.PROBE_INDICES] = probe_masses
+
+        # Hubble flow body-force: a = H · (pos_abs − centre_vec).  Captured
+        # as a JAX-traceable closure so NBodySampler can JIT it alongside
+        # the integrator.  ``centre_vec`` is the absolute domain centre
+        # — particles at the centre feel zero Hubble flow (so the anchor
+        # stays put), and outward radial distance gives outward push.
+        H = self.HUBBLE_H
+        centre_vec = jnp.array([centre, centre], dtype=jnp.float64)
+
+        def hubble_flow(pos):
+            return H * (pos - centre_vec[None, :])
+
+        sim = NBodySampler(
+            masses=masses,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=positions,
+            initial_velocities=velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
+            spatial_dimensions=2,
+            external_acceleration=hubble_flow,
         )
         positions_rec, velocities_rec = _record_at_times(
             sim, self.dt, duration, measurement_times

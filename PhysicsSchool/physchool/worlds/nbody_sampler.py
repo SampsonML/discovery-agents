@@ -349,33 +349,47 @@ class NBodySampler:
         else:
             self._potential_fn = None
 
-        # Optional uniform external acceleration (e.g. a constant background
-        # body-force / "ether" field). Stored as a (D,) array and broadcast to
-        # every particle each step. ``None`` means no external term.
-        if external_acceleration is None:
-            self.external_acceleration = None
-        else:
-            ext = jnp.asarray(external_acceleration, dtype=jnp.float64)
-            if ext.shape != (self.spatial_dimensions,):
-                raise ValueError(
-                    f"external_acceleration must have shape ({self.spatial_dimensions},), "
-                    f"got {ext.shape}"
+        # Optional external acceleration applied to every particle each step.
+        # Two shapes are accepted:
+        #   * a constant ``(D,)`` array — uniform body-force (e.g. the ether
+        #     world's northward push), broadcast to every particle.
+        #   * a callable ``f(positions) -> (N, D)`` — position-dependent body
+        #     force (e.g. a Hubble flow ``H · r``, a vortex, etc.). Must be
+        #     JAX-traceable so it can be jitted alongside the integrator.
+        # ``None`` means no external term.
+        self._external_accel_fn: Optional[Callable] = None
+        self.external_acceleration = None
+        if external_acceleration is not None:
+            if callable(external_acceleration):
+                self.external_acceleration = external_acceleration
+                self._external_accel_fn = external_acceleration
+            else:
+                ext = jnp.asarray(external_acceleration, dtype=jnp.float64)
+                if ext.shape != (self.spatial_dimensions,):
+                    raise ValueError(
+                        f"external_acceleration must have shape "
+                        f"({self.spatial_dimensions},), got {ext.shape}"
+                    )
+                self.external_acceleration = ext
+                # Wrap as a callable so the rest of the class only deals with
+                # one form (broadcast the constant vector to every particle).
+                self._external_accel_fn = lambda pos, _ext=ext: jnp.broadcast_to(
+                    _ext[None, :], pos.shape
                 )
-            self.external_acceleration = ext
 
         # Step functions assume charges and masses are fixed, so close over them.
         src_fixed = self.source_charges
         frc_fixed = self.force_charges
         masses_fixed = self.masses
-        if self.external_acceleration is None:
+        ext_fn = self._external_accel_fn
+        if ext_fn is None:
             accel_pos_only = jax.jit(
                 lambda pos: self._accel_fn(pos, src_fixed, frc_fixed, masses_fixed)
             )
         else:
-            ext_fixed = self.external_acceleration[None, :]
             accel_pos_only = jax.jit(
                 lambda pos: self._accel_fn(pos, src_fixed, frc_fixed, masses_fixed)
-                + ext_fixed
+                + ext_fn(pos)
             )
 
         if integrator != "dopri5":
@@ -505,15 +519,15 @@ class NBodySampler:
         src = self.source_charges
         frc = self.force_charges
         masses = self.masses
-        ext = self.external_acceleration
+        ext_fn = self._external_accel_fn
 
         @jax.jit
         def rhs(y, t):
             pos = y[: n * d].reshape((n, d))
             vel = y[n * d :].reshape((n, d))
             a = accel(pos, src, frc, masses)
-            if ext is not None:
-                a = a + ext[None, :]
+            if ext_fn is not None:
+                a = a + ext_fn(pos)
             return jnp.concatenate([vel.reshape(-1), a.reshape(-1)])
 
         y0 = jnp.concatenate([self.positions.reshape(-1), self.velocities.reshape(-1)])
