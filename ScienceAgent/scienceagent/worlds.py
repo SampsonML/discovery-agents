@@ -11,6 +11,11 @@ from scienceagent.executor import (
     SpeciesExecutor,
     ThreeSpeciesExecutor,
     DarkMatterExecutor,
+    NBodySimulationExecutor,
+    NBodyCircleExecutor,
+    NBodySpeciesExecutor,
+    NBodyThreeSpeciesExecutor,
+    NBodyDarkMatterExecutor,
 )
 
 _GENERAL_FORM = (
@@ -534,27 +539,68 @@ WORLDS = {
 }
 
 
-def get_world(name: str, **executor_overrides) -> dict:
+# Map FieldSampler executor names → NBody equivalents.  Worlds whose
+# FieldSampler operator is not portable (diffusion / wave / temporal_order>0)
+# have no entry here, and ``get_world(..., engine='nbody')`` will reject them.
+_NBODY_EXECUTOR_CLASSES = {
+    "SimulationExecutor": NBodySimulationExecutor,
+    "CircleExecutor": NBodyCircleExecutor,
+    "SpeciesExecutor": NBodySpeciesExecutor,
+    "ThreeSpeciesExecutor": NBodyThreeSpeciesExecutor,
+    "DarkMatterExecutor": NBodyDarkMatterExecutor,
+}
+
+_FIELD_EXECUTOR_CLASSES = {
+    "SimulationExecutor": SimulationExecutor,
+    "CircleExecutor": CircleExecutor,
+    "SpeciesExecutor": SpeciesExecutor,
+    "ThreeSpeciesExecutor": ThreeSpeciesExecutor,
+    "DarkMatterExecutor": DarkMatterExecutor,
+}
+
+
+def get_world(name: str, engine: str = "field", **executor_overrides) -> dict:
     """
     Return a config dict for the named world with keys:
         executor, mission, true_law, true_law_title,
         system_prompt (path string), law_stub (function signature string)
+
+    ``engine`` selects the simulation backend:
+
+      * ``'field'`` (default) — FFT/CIC ``FieldSampler``: supports every world,
+        including diffusion (n=1) and wave (n=2) physics.
+      * ``'nbody'`` — direct O(N²) ``NBodySampler`` with a high-order
+        symplectic integrator.  Available for the 7 worlds whose physics is
+        a static (n=0) linear PDE; the diffusion and wave worlds have no
+        instantaneous-pairwise-force equivalent and will raise.
     """
     if name not in WORLDS:
         raise ValueError(f"Unknown world '{name}'. Available: {list(WORLDS)}")
+
+    if engine not in ("field", "nbody"):
+        raise ValueError(f"engine must be 'field' or 'nbody', got {engine!r}")
 
     entry = WORLDS[name]
     kwargs = {**entry["executor_kwargs"], **executor_overrides}
 
     executor_class_name = entry.get("executor_class", "SimulationExecutor")
-    executor_classes = {
-        "SimulationExecutor": SimulationExecutor,
-        "CircleExecutor": CircleExecutor,
-        "SpeciesExecutor": SpeciesExecutor,
-        "ThreeSpeciesExecutor": ThreeSpeciesExecutor,
-        "DarkMatterExecutor": DarkMatterExecutor,
-    }
-    executor = executor_classes[executor_class_name](**kwargs)
+
+    if engine == "nbody":
+        if executor_class_name not in _NBODY_EXECUTOR_CLASSES:
+            raise ValueError(
+                f"World {name!r} has no NBody twin (engine='nbody' "
+                "supports only worlds with temporal_order=0 and a single "
+                "static PDE operator).  Use engine='field' instead.")
+        # Diffusion / wave have temporal_order != 0 → reject early.
+        if kwargs.get("temporal_order", 0) != 0:
+            raise ValueError(
+                f"engine='nbody' cannot run world {name!r}: it requires a "
+                "time-evolving field (temporal_order != 0).")
+        executor_cls = _NBODY_EXECUTOR_CLASSES[executor_class_name]
+    else:
+        executor_cls = _FIELD_EXECUTOR_CLASSES[executor_class_name]
+
+    executor = executor_cls(**kwargs)
 
     default_law_stub = (
         "def discovered_law(pos1, pos2, p1, p2, velocity2, duration):\n"

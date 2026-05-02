@@ -5,6 +5,7 @@ For now, just using raw MSE of the predicted vs PhysicsSchool particle paths
 
 import functools
 import re
+import time
 import numpy as np
 from typing import Callable, Optional
 
@@ -23,6 +24,14 @@ FIT_TIME_BUDGET_S = 60.0  # wall-clock cap on a single scipy.optimize.minimize c
 # (Python for-loop with tiny dt, stiff ODE, infinite loop) from hanging the
 # scoring loop or the fit objective indefinitely.
 LAW_CALL_TIMEOUT_S = 10.0
+
+
+# Caps on training-data subsampling for the fit. The agent's discovered_law
+# may be a pure-Python integrator that takes seconds per call; without these
+# caps scipy.minimize can call it hundreds of times and stall evaluation for
+# hours. Used by `_subsample_training` for n-body / multi-trajectory fits.
+FIT_MAX_TRAJECTORIES = 4     # cap training trajectories used by the loss
+FIT_MAX_TIMES_PER_TRAJ = 5   # cap measurement times within each trajectory
 
 
 class _FitTimeBudgetExceeded(Exception):
@@ -827,6 +836,53 @@ def _extract_training_trajectories(conversation_log: list) -> list:
     return training
 
 
+def _subsample_training(
+    training: list,
+    max_trajectories: int = FIT_MAX_TRAJECTORIES,
+    max_times: int = FIT_MAX_TIMES_PER_TRAJ,
+) -> list:
+    """Down-select training data so that fitting a slow law stays bounded.
+
+    Picks evenly-spaced trajectories, then evenly-spaced measurement times
+    within each, deterministically. Aligned per-time arrays in the output
+    dict (positions, pos1, pos2, velocities, ...) are sliced to match.
+    """
+    if not training:
+        return training
+
+    n_traj = len(training)
+    if n_traj > max_trajectories:
+        idx = np.linspace(0, n_traj - 1, max_trajectories).round().astype(int).tolist()
+        training = [training[i] for i in idx]
+
+    pruned = []
+    for sample in training:
+        in_dict = sample.get("input", {}) or {}
+        out_in = sample.get("output", {}) or {}
+        times = list(out_in.get(
+            "measurement_times",
+            in_dict.get("measurement_times", []),
+        ))
+        if not times or len(times) <= max_times:
+            pruned.append(sample)
+            continue
+
+        sel = sorted(set(
+            np.linspace(0, len(times) - 1, max_times).round().astype(int).tolist()
+        ))
+        out = dict(out_in)
+        out["measurement_times"] = [times[i] for i in sel]
+        for key in ("positions", "pos1", "pos2",
+                    "velocities", "velocity1", "velocity2"):
+            arr = out.get(key)
+            if arr is None or len(arr) != len(times):
+                continue
+            out[key] = [arr[i] for i in sel]
+        pruned.append({"input": in_dict, "output": out})
+
+    return pruned
+
+
 def _two_particle_loss(law: Callable, training: list) -> float:
     """Mean-squared position error on 2-particle training trajectories."""
     total_sq = 0.0
@@ -1138,16 +1194,25 @@ def _maybe_fit(
         for name, init, bounds in fit_spec_list
     }
 
+    # Cap training data so a slow agent law can't make scipy.minimize stall
+    # for hours on hundreds of training samples.
+    training = _subsample_training(training_trajectories)
+    if verbose and len(training) < len(training_trajectories):
+        print(f"  [fit using {len(training)}/{len(training_trajectories)} "
+              f"training trajectories (cap: {FIT_MAX_TRAJECTORIES} traj × "
+              f"{FIT_MAX_TIMES_PER_TRAJ} times)]")
+
     init_kwargs = {name: init for name, init, _ in fit_spec_list}
     init_law = functools.partial(discovered_law, **init_kwargs)
     try:
-        loss_before = loss_fn(init_law, training_trajectories)
+        loss_before = loss_fn(init_law, training)
     except Exception:
         loss_before = float("inf")
 
+    fit_t0 = time.monotonic()
     try:
         fitted = _fit_law_parameters(
-            discovered_law, fit_spec_list, training_trajectories, loss_fn
+            discovered_law, fit_spec_list, training, loss_fn
         )
     except Exception as e:
         if verbose:
@@ -1162,10 +1227,14 @@ def _maybe_fit(
                 "error": f"optimizer_failure: {e}",
             },
         )
+    fit_elapsed = time.monotonic() - fit_t0
+    if verbose and fit_elapsed >= FIT_TIME_BUDGET_S - 1.0:
+        print(f"  [fit hit {FIT_TIME_BUDGET_S:.0f}s wall-clock budget; "
+              f"using best-so-far parameters]")
 
     bound_law = functools.partial(discovered_law, **fitted)
     try:
-        loss_after = loss_fn(bound_law, training_trajectories)
+        loss_after = loss_fn(bound_law, training)
     except Exception:
         loss_after = float("inf")
 

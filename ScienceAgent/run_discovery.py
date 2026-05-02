@@ -70,6 +70,14 @@ def main():
         help="Optional RNG seed for reproducible noise.",
     )
     parser.add_argument(
+        "--engine",
+        choices=("field", "nbody"),
+        default="field",
+        help="Simulation backend: 'field' (FFT FieldSampler, supports "
+        "diffusion/wave) or 'nbody' (direct O(N²) NBodySampler with "
+        "Yoshida-4 symplectic; more accurate for static-PDE worlds).",
+    )
+    parser.add_argument(
         "--max-rounds",
         type=int,
         default=None,
@@ -125,6 +133,7 @@ def main():
         critic = CriticAgent(model=args.critic_model)
 
     print(f"World : {args.world}")
+    print(f"Engine: {args.engine}")
     print(f"Model : {args.model}")
     if critic:
         print(f"Critic: {args.critic_model}")
@@ -139,7 +148,12 @@ def main():
         print(f"Mode  : random experiments (one per round{seed_str})")
     print()
 
-    world = get_world(args.world, noise_std=args.noise_std, noise_seed=args.noise_seed)
+    world = get_world(
+        args.world,
+        engine=args.engine,
+        noise_std=args.noise_std,
+        noise_seed=args.noise_seed,
+    )
     executor = world["executor"]
     mission = world["mission"]
     true_law = world["true_law"]
@@ -303,6 +317,7 @@ def main():
     if args.output:
         out = {
             "world": args.world,
+            "engine": args.engine,
             "model": args.model,
             "noise_std": args.noise_std,
             "noise_seed": args.noise_seed,
