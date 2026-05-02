@@ -28,83 +28,42 @@ The agent doesn't see any of this. It only sees noisy particle positions over ti
 5. After sufficient evidence, it submits a proposed law as executable Python
 6. The law is evaluated against held-out test trajectories
 
-## Repository Structure
+## Simulation Backends
 
-```
-discovery-agents/
-├── PhysicsSchool/                        # Physics simulation engine
-│   ├── setup.py
-│   ├── physchool/
-│   │   ├── __init__.py
-│   │   └── worlds/
-│   │       ├── field_sampler.py          # Core FieldSampler class
-│   │       ├── utils.py                  # Cloud-in-Cell interpolation
-│   │       └── main.py
-│   ├── tests/                            # Simulator-side unit tests
-│   │   ├── test_cic.py
-│   │   ├── test_forces.py
-│   │   ├── test_field_evolution.py
-│   │   ├── test_trajectories.py
-│   │   ├── test_circle_world.py
-│   │   └── test_species_world.py
-│   ├── nbs/
-│   │   └── gravity_example.ipynb         # Example notebook
-│   └── prompts/                          # Agent system prompts (one per world variant)
-│       ├── run_experiments.md            # default 2-particle worlds
-│       ├── run_experiments_circle.md     # 11-particle ring
-│       ├── run_experiments_species.md    # multi-species variant
-│       ├── run_experiments_three_species.md
-│       ├── run_experiments_dark_matter.md
-│       └── run_experiments_*_random.md   # random-experiment-mode siblings
-│
-├── ScienceAgent/                         # LLM discovery agent
-│   ├── setup.py
-│   ├── run_discovery.py                  # CLI entry point
-│   ├── scienceagent/
-│   │   ├── __init__.py
-│   │   ├── agent.py                      # DiscoveryAgent main loop
-│   │   ├── critic.py                     # Supervisor critic agent
-│   │   ├── executor.py                   # Simulation executors
-│   │   ├── evaluator.py                  # Law evaluation, scoring, fitting
-│   │   ├── llm_client.py                 # Multi-provider LLM client
-│   │   ├── worlds.py                     # Predefined world configs
-│   │   ├── mse_fitting.py                # Mid-run parameter fitting
-│   │   ├── load_trajectories.py          # Trajectory CSV loader
-│   │   └── trajectory_logger.py          # Per-round trajectory CSV writer
-│   └── tests/
-│       ├── test_executor.py
-│       ├── test_explanation_metric.py
-│       ├── test_noise.py
-│       ├── test_parameter_fitting.py
-│       ├── test_load_trajectories.py
-│       ├── test_mse_fitting.py
-│       └── test_trajectory_logger.py
-│
-├── scripts/                              # Benchmark drivers and aggregators
-│   ├── yml_benchmark.py                  # YAML-driven benchmark + aggregator + plots
-│   ├── run_benchmark.sh                  # Env-var-driven full matrix
-│   ├── round_benchmark.sh                # Rounds-budget sweep
-│   ├── random_benchmark.sh               # Random-experiment variant
-│   ├── aggregate_bench.py                # JSONL aggregator
-│   ├── append_summary.py
-│   ├── analyze_rounds.py
-│   └── analyze_random_vs_agent.py
-│
-├── configs/                              # YAML benchmark configs
-│   └── example.yml
-│
-├── .gitignore
-├── LICENSE
-└── README.md
-```
+The simulator ships with two physics engines that can each evaluate the same
+set of worlds, selected by `--engine`:
+
+- **N-body** (`--engine nbody`, **default**) — direct O(N²) pairwise force
+  computation under a 4th-order Yoshida symplectic integrator. The pair
+  kernel is the analytic Green's function of the world's linear operator
+  (2D Poisson, 2D Yukawa via modified Bessel `K_0/K_1`, or 2D Riesz
+  fractional). Best for static-field worlds (`temporal_order = 0`) where
+  accuracy and energy conservation matter; supports Hubble-flow, "ether"-style
+  body forces, and other position- or velocity-dependent terms that don't fit
+  into a linear PDE.
+
+- **Field sampler** (`--engine field`) — JAX/JIT FFT-based field on a periodic
+  grid with Cloud-In-Cell (CIC) particle ↔ field interpolation. Required for
+  time-evolving worlds and for any world whose physics is genuinely a linear
+  PDE on the field rather than an instantaneous pairwise law.
+
+The N-body engine is the default because it's more accurate on static-field
+worlds and has no grid resolution to tune. The field engine kicks in when a
+world needs it, and can also be forced for cross-engine sanity checks against
+the N-body trajectories.
 
 ## Predefined Worlds
 
-| World | Temporal Order | Operator | What the Agent Must Discover |
-|-------|---------------|----------|------------------------------|
-| **Gravity** | $n=0$ (constraint) | Laplacian | Classical inverse-distance force law |
-| **Fractional** | $n=0$ (constraint) | Fractional Laplacian | Anomalous power-law force |
-| **Circle** | $n=0$ (constraint) | Fractional Laplacian | Force law from ring geometry (11 particles) |
+| World | Temporal Order | Operator / Extra Term | What the Agent Must Discover | Engines |
+|---|---|---|---|---|
+| **gravity** | $n=0$ | Laplacian | Logarithmic / $1/r$ attractive force in 2D | nbody · field |
+| **yukawa** | $n=0$ | Screened Poisson (Helmholtz) | Short-range exponentially suppressed force, screening length $\lambda$ | nbody · field |
+| **fractional** | $n=0$ | Fractional Laplacian $-(-\nabla^2)^\alpha$ | Anomalous power-law force, fit $\alpha$ | nbody · field |
+| **circle** | $n=0$ | Fractional Laplacian, 11 ring particles | Force law from a fixed ring geometry | nbody · field |
+| **three_species** | $n=0$ | Laplacian, 3 hidden classes + 5 neutral probes | Three species (one repulsive) + neutral probes | nbody · field |
+| **dark_matter** | $n=0$ | Laplacian, hidden 10-particle dark halo | Existence and strength of unobserved sources | nbody · field |
+| **ether** | $n=0$ | Laplacian + uniform body-force $\alpha\hat{\mathbf{y}}$ | Central law + a global preferred-direction drift | nbody only |
+| **hubble** | $n=0$ | Laplacian + radial Hubble flow $H\,\mathbf{r}$ | Central law + a position-dependent outward push | nbody only |
 
 ## Getting Started
 
@@ -240,7 +199,6 @@ The agent supports multiple LLM backends though Groq seems to be the most fricti
 - **OpenAI** (GPT, o1)
 - **Azure OpenAI** (GPT-5.4 family)
 - **Together.ai** (open-weight models — Llama 4, Qwen 3, DeepSeek, Kimi, gpt-oss, Mixtral, ...)
-- **OpenRouter**, **Groq**, **HuggingFace**, **Ollama**
 
 Set the corresponding environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `TOGETHER_API_KEY`, etc.) and pass the model name to `run_discovery.py`. Provider routing is done by model-string prefix — e.g. `together/Qwen/Qwen3-235B-A22B-Instruct-2507-tput`.
 

@@ -1676,7 +1676,7 @@ def _maybe_fit(
 # Explanation judge: scores the agent's prose description of the
 # physical system against the world's ground-truth optimal_explanation.
 # Uses a fixed strong LLM judge (default
-# together/meta-llama/Llama-3.1-405B-Instruct-Turbo) for reproducibility
+# claude-opus-4-6) for reproducibility
 # across agent models.  The default is intentionally chosen to be
 # disjoint from the models being benchmarked so that no agent grades its
 # own explanations — keeping the explanation metric a fair test.
@@ -1733,7 +1733,7 @@ class ExplanationJudge:
 
     def __init__(
         self,
-        judge_model: str = "together/meta-llama/Llama-3.1-405B-Instruct-Turbo",
+        judge_model: str = "claude-opus-4-6",
         max_tokens: int = 1024,
     ):
         self.judge_model = judge_model
@@ -1838,13 +1838,40 @@ class ExplanationJudge:
 
 
 def _parse_judge_score(reply: str) -> Optional[float]:
-    """Extract the integer score inside <score>...</score> tags."""
+    """Extract a 0–10 score from a judge reply.
+
+    Tries a cascade of formats in order of strictness so that a judge
+    model which ignores the strict ``<score>...</score>`` instruction
+    but still emits a clear score in prose still gets credit:
+
+      1. ``<score>N</score>``                        — the prompted format
+      2. ``<score>N/10</score>``                     — common tag variant
+      3. ``Score: N`` / ``**Score:** N`` / ``Final score: N`` (optional ``/10``)
+
+    Returns ``None`` if no recognizable form parses to a value in [0, 10].
+    """
     if not reply:
         return None
-    match = re.search(r"<score>\s*(\d+(?:\.\d+)?)\s*</score>", reply, re.IGNORECASE)
-    if not match:
-        return None
-    try:
-        return float(match.group(1))
-    except ValueError:
-        return None
+
+    patterns = (
+        # 1. Strict tagged form (the prompted output).
+        r"<score>\s*(\d+(?:\.\d+)?)\s*</score>",
+        # 2. Tagged with a ``/10`` suffix some models append.
+        r"<score>\s*(\d+(?:\.\d+)?)\s*/\s*10\s*</score>",
+        # 3. Prose "Score: N", "**Score:** N", "Final Score: N",
+        #    optionally followed by "/10".  Allows surrounding markdown.
+        r"(?:final\s+)?score\s*:?\s*\*{0,2}\s*(\d+(?:\.\d+)?)(?:\s*/\s*10)?\b",
+    )
+
+    for pat in patterns:
+        match = re.search(pat, reply, re.IGNORECASE)
+        if not match:
+            continue
+        try:
+            val = float(match.group(1))
+        except ValueError:
+            continue
+        if 0.0 <= val <= 10.0:
+            return val
+
+    return None
