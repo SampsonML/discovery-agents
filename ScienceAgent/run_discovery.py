@@ -72,10 +72,11 @@ def main():
     parser.add_argument(
         "--engine",
         choices=("field", "nbody"),
-        default="field",
-        help="Simulation backend: 'field' (FFT FieldSampler, supports "
-        "diffusion/wave) or 'nbody' (direct O(N²) NBodySampler with "
-        "Yoshida-4 symplectic; more accurate for static-PDE worlds).",
+        default="nbody",
+        help="Simulation backend: 'nbody' (default; direct O(N²) "
+        "NBodySampler with Yoshida-4 symplectic; more accurate for "
+        "static-PDE worlds) or 'field' (FFT FieldSampler; required for "
+        "the diffusion/wave worlds).",
     )
     parser.add_argument(
         "--max-rounds",
@@ -119,6 +120,8 @@ def main():
         SpeciesEvaluator,
         ThreeSpeciesEvaluator,
         DarkMatterEvaluator,
+        EtherEvaluator,
+        HubbleEvaluator,
         ExplanationJudge,
         _extract_training_trajectories,
         clean_law_source,
@@ -245,6 +248,10 @@ def main():
         evaluator = ThreeSpeciesEvaluator(executor)
     elif args.world == "dark_matter":
         evaluator = DarkMatterEvaluator(executor)
+    elif args.world == "ether":
+        evaluator = EtherEvaluator(executor)
+    elif args.world == "hubble":
+        evaluator = HubbleEvaluator(executor)
     else:
         evaluator = Evaluator(executor)
 
@@ -252,7 +259,16 @@ def main():
     # agent's optional `fit_parameters()` function. Pass the training
     # trajectories the agent collected during discovery as the fit set;
     # structural worlds (species, three_species, dark_matter) skip this.
-    _FIT_WORLDS = {"gravity", "yukawa", "fractional", "diffusion", "wave", "circle"}
+    _FIT_WORLDS = {
+        "gravity",
+        "yukawa",
+        "fractional",
+        "diffusion",
+        "wave",
+        "circle",
+        "ether",
+        "hubble",
+    }
     eval_kwargs = {"verbose": True}
     if args.world in _FIT_WORLDS:
         eval_kwargs["training_trajectories"] = _extract_training_trajectories(
@@ -267,7 +283,11 @@ def main():
     print("=" * 60)
     print(f"Agent explanation: {agent.discovered_explanation or '(none submitted)'}")
     print()
-    judge = ExplanationJudge(judge_model="claude-opus-4-6")
+    # Judge default: a strong model from a different family/provider than
+    # any of the benchmarked agent models, so no agent grades its own
+    # explanations.  Override via ExplanationJudge(judge_model=...).
+    judge_model = "claude-opus-4-6"
+    judge = ExplanationJudge(judge_model=judge_model)
     explanation_result = judge.score(
         agent_explanation=agent.discovered_explanation,
         optimal_explanation=optimal_explanation,
@@ -277,7 +297,7 @@ def main():
     results["explanation"] = {
         "agent_explanation": agent.discovered_explanation,
         "optimal_explanation": optimal_explanation,
-        "judge_model": "claude-opus-4-6",
+        "judge_model": judge_model,
         **explanation_result,
     }
 
@@ -305,6 +325,18 @@ def main():
             _plot_law(clean_law_source(law_source), args.world, args.model, law_path)
         elif args.world == "dark_matter":
             _plot_dark_matter_trajectories(
+                results["trajectories"], args.world, args.model, plot_path
+            )
+            _plot_law(clean_law_source(law_source), args.world, args.model, law_path)
+        elif args.world == "ether":
+            _plot_ether_trajectories(
+                results["trajectories"], args.world, args.model, plot_path
+            )
+            _plot_law(clean_law_source(law_source), args.world, args.model, law_path)
+        elif args.world == "hubble":
+            # Hubble shares the 26-particle anchor + ring + probes layout, so
+            # the ether plotter renders correctly for it too.
+            _plot_ether_trajectories(
                 results["trajectories"], args.world, args.model, plot_path
             )
             _plot_law(clean_law_source(law_source), args.world, args.model, law_path)
@@ -1157,6 +1189,146 @@ def _plot_three_species_trajectories(trajectories, world, model, path):
 
         ax.set_title(
             f"Case {traj['case']}  |  mean err = {traj['error']:.4f}", fontsize=10
+        )
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.legend(fontsize=7, loc="best", ncol=2)
+        ax.set_aspect("equal", adjustable="datalim")
+        ax.grid(True, alpha=0.3)
+        ax.tick_params(direction="in", which="both", top=True, right=True)
+        ax.minorticks_on()
+
+    model_short = os.path.basename(model)
+    fig.suptitle(f"World: {world}  |  Model: {model_short}", fontsize=11, y=0.98)
+    fig.savefig(path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Plot saved to {path}")
+
+
+def _plot_ether_trajectories(trajectories, world, model, path):
+    """Plot the 26-particle ether world: anchor, mass-coloured orbiters, probes (true vs predicted)."""
+    import matplotlib.pyplot as plt
+    import matplotlib as mpl
+    import numpy as np
+
+    mpl.rcParams["font.family"] = "serif"
+
+    n_cases = len(trajectories)
+    fig, axes = plt.subplots(1, n_cases, figsize=(7 * n_cases, 7), squeeze=False)
+    fig.subplots_adjust(left=0.06, right=0.95, top=0.88, bottom=0.06, wspace=0.30)
+
+    color_anchor = "black"
+    color_m1 = "#2166ac"  # blue  — orbiters with mass 1
+    color_m2 = "#1a9850"  # green — orbiters with mass 2
+    color_m4 = "#d73027"  # red   — orbiters with mass 4
+    color_probe = "#e6ab02"  # gold — probes (ground truth)
+    color_pred = "orchid"
+
+    anchor_idx = [0]
+    ring_idx = list(range(1, 21))
+    probe_idx = list(range(21, 26))
+
+    # Mass pattern matches NBodyEtherExecutor.MASS_PATTERN cycled across the 20 orbiters
+    mass_pattern = (1.0, 2.0, 4.0)
+    color_by_mass = {1.0: color_m1, 2.0: color_m2, 4.0: color_m4}
+    ring_colors = [
+        color_by_mass[mass_pattern[i % len(mass_pattern)]] for i in range(len(ring_idx))
+    ]
+
+    for idx, traj in enumerate(trajectories):
+        ax = axes[0, idx]
+        gt = np.asarray(traj["gt"])  # (T, 26, 2)
+        pred = np.asarray(traj["pred"]) if traj["pred"] is not None else None
+
+        # Anchor
+        ax.plot(
+            gt[:, 0, 0],
+            gt[:, 0, 1],
+            "-",
+            color=color_anchor,
+            lw=1.5,
+            alpha=0.9,
+            zorder=5,
+            label="Anchor",
+        )
+        ax.scatter(
+            gt[0, 0, 0],
+            gt[0, 0, 1],
+            color=color_anchor,
+            s=80,
+            marker="*",
+            zorder=8,
+            edgecolors="white",
+            linewidths=0.6,
+        )
+
+        # Ring orbiters, coloured by mass
+        seen_legend = {1.0: False, 2.0: False, 4.0: False}
+        for k, i in enumerate(ring_idx):
+            m = mass_pattern[k % len(mass_pattern)]
+            label = f"Orbiter (m={int(m)})" if not seen_legend[m] else None
+            seen_legend[m] = True
+            ax.plot(
+                gt[:, i, 0],
+                gt[:, i, 1],
+                "-",
+                color=ring_colors[k],
+                lw=0.8,
+                alpha=0.6,
+                zorder=3,
+                label=label,
+            )
+        ax.scatter(
+            gt[0, ring_idx, 0],
+            gt[0, ring_idx, 1],
+            color=ring_colors,
+            s=25,
+            marker="o",
+            zorder=6,
+            edgecolors="white",
+            linewidths=0.4,
+        )
+
+        # True probe trajectories
+        for k, i in enumerate(probe_idx):
+            ax.plot(
+                gt[:, i, 0],
+                gt[:, i, 1],
+                "-",
+                color=color_probe,
+                lw=1.6,
+                alpha=0.95,
+                zorder=5,
+                label="True probes" if k == 0 else None,
+            )
+        ax.scatter(
+            gt[0, probe_idx, 0],
+            gt[0, probe_idx, 1],
+            color=color_probe,
+            s=45,
+            marker="D",
+            zorder=9,
+            edgecolors="white",
+            linewidths=0.5,
+        )
+
+        # Predicted probe trajectories
+        if pred is not None:
+            for k, i in enumerate(probe_idx):
+                ax.plot(
+                    pred[:, i, 0],
+                    pred[:, i, 1],
+                    "--",
+                    color=color_pred,
+                    lw=1.4,
+                    alpha=0.85,
+                    zorder=4,
+                    label="Predicted probes" if k == 0 else None,
+                )
+
+        ax.set_title(
+            f"Case {traj['case']}  |  mean probe err = {traj['error']:.4f}",
+            fontsize=10,
         )
         ax.set_xlabel("x")
         ax.set_ylabel("y")

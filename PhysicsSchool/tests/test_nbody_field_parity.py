@@ -23,20 +23,27 @@ import pytest
 from physchool.worlds.nbody_sampler import NBodySampler
 from physchool.worlds.force_laws import poisson_2d_force, poisson_2d_potential
 from scienceagent.executor import (
-    DarkMatterExecutor, NBodyDarkMatterExecutor,
+    DarkMatterExecutor,
+    NBodyDarkMatterExecutor,
     NBodyThreeSpeciesExecutor,
-    SpeciesExecutor, NBodySpeciesExecutor,
+    SpeciesExecutor,
+    NBodySpeciesExecutor,
 )
-
 
 # ──────────────────────────────────────────────────────────────────────────
 # Direct-N-body parity: probes feel forces, dark matter drift agrees with field
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def _dark_matter_exp():
     return {
-        "probe_positions":  [[5.0, 0.0], [0.0, 5.0], [-5.0, 0.0],
-                             [0.0, -5.0], [7.0, 7.0]],
+        "probe_positions": [
+            [5.0, 0.0],
+            [0.0, 5.0],
+            [-5.0, 0.0],
+            [0.0, -5.0],
+            [7.0, 7.0],
+        ],
         "probe_velocities": [[0.0, 0.0]] * 5,
         "measurement_times": [1.0, 2.0, 3.0, 5.0],
     }
@@ -56,12 +63,18 @@ class TestProbesFeelForces:
             f"All N-body probes drifted < 0.5 length units after 5 t.u. "
             f"(min drift {probe_drift.min():.3e}); the engine is applying "
             "zero force to neutral probes — the source/force charge "
-            "convention has regressed.")
+            "convention has regressed."
+        )
 
     def test_three_species_probes_drift(self):
         exp = {
-            "probe_positions":  [[5.0, 0.0], [0.0, 5.0], [-5.0, 0.0],
-                                 [0.0, -5.0], [7.0, 7.0]],
+            "probe_positions": [
+                [5.0, 0.0],
+                [0.0, 5.0],
+                [-5.0, 0.0],
+                [0.0, -5.0],
+                [7.0, 7.0],
+            ],
             "probe_velocities": [[0.0, 0.0]] * 5,
             "measurement_times": [1.0, 2.0, 3.0],
         }
@@ -70,7 +83,8 @@ class TestProbesFeelForces:
         probe_drift = np.linalg.norm(pos[-1, 30:35] - pos[0, 30:35], axis=1)
         assert probe_drift.min() > 1e-3, (
             f"Three-species N-body probes drifted < 1e-3 (min "
-            f"{probe_drift.min():.3e}); neutral probes are getting zero force.")
+            f"{probe_drift.min():.3e}); neutral probes are getting zero force."
+        )
 
 
 class TestEngineParity:
@@ -93,7 +107,8 @@ class TestEngineParity:
         # tolerance to keep the test stable across grid resolutions.
         assert n_dark == pytest.approx(f_dark, rel=0.5), (
             f"Dark-matter drift mismatch: field={f_dark:.3f}, "
-            f"nbody={n_dark:.3f}.  Pre-fix ratio was ~5×.")
+            f"nbody={n_dark:.3f}.  Pre-fix ratio was ~5×."
+        )
 
     def test_dark_matter_probe_drift_matches_field(self):
         exp = _dark_matter_exp()
@@ -107,14 +122,21 @@ class TestEngineParity:
         rel_err = np.abs(f_probe - n_probe) / np.maximum(f_probe, 1e-6)
         assert rel_err.max() < 0.5, (
             f"Probe drift mismatch field vs nbody (rel err {rel_err}): "
-            f"field={f_probe}, nbody={n_probe}")
+            f"field={f_probe}, nbody={n_probe}"
+        )
 
     def test_species_engine_parity(self):
         """Species B (q = 3) should feel itself with the same 1/r law as
         Species A (q = 1) — pre-fix, B–B forces were 9× too strong."""
         exp = {
-            "positions":  [[2.0, 0.0], [-2.0, 0.0], [0.0, 2.0],
-                           [0.0, -2.0], [3.0, 3.0], [-3.0, -3.0]],
+            "positions": [
+                [2.0, 0.0],
+                [-2.0, 0.0],
+                [0.0, 2.0],
+                [0.0, -2.0],
+                [3.0, 3.0],
+                [-3.0, -3.0],
+            ],
             "velocities": [[0.0, 0.0]] * 6,
             "measurement_times": [0.5, 1.0, 1.5, 2.0],
         }
@@ -126,12 +148,14 @@ class TestEngineParity:
         final_err = np.linalg.norm(f[-1] - n[-1], axis=1)
         assert final_err.max() < 0.6, (
             f"Per-particle position error at t=2.0 too large: {final_err}; "
-            "field/nbody divergence indicates a pairwise charge bug.")
+            "field/nbody divergence indicates a pairwise charge bug."
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────
 # Direct unit tests on the asymmetric pairwise convention
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def _build_pair_sim(source, force, masses=None, sep=4.0, softening=0.0):
     """Two-particle test rig: particles at (±sep/2, 0), zero velocity."""
@@ -142,9 +166,13 @@ def _build_pair_sim(source, force, masses=None, sep=4.0, softening=0.0):
         masses=masses,
         source_charges=np.asarray(source, dtype=np.float64),
         force_charges=np.asarray(force, dtype=np.float64),
-        initial_positions=positions, initial_velocities=velocities,
-        force_law=poisson_2d_force, potential_law=poisson_2d_potential,
-        integrator="leapfrog", dt=1e-3, softening=softening,
+        initial_positions=positions,
+        initial_velocities=velocities,
+        force_law=poisson_2d_force,
+        potential_law=poisson_2d_potential,
+        integrator="leapfrog",
+        dt=1e-3,
+        softening=softening,
         spatial_dimensions=2,
     )
 
@@ -153,8 +181,7 @@ def _initial_accel(sim):
     """Return the acceleration array at the simulator's initial state."""
     accel_fn = sim._accel_fn
     return np.asarray(
-        accel_fn(sim.positions, sim.source_charges,
-                 sim.force_charges, sim.masses)
+        accel_fn(sim.positions, sim.source_charges, sim.force_charges, sim.masses)
     )
 
 
@@ -166,8 +193,9 @@ class TestPairwiseConvention:
         even though its source_charge is non-zero."""
         sim = _build_pair_sim(source=[1.0, 1.0], force=[1.0, 0.0])
         a = _initial_accel(sim)
-        assert np.linalg.norm(a[1]) < 1e-12, (
-            f"force_charge=0 receiver got nonzero acceleration {a[1]}")
+        assert (
+            np.linalg.norm(a[1]) < 1e-12
+        ), f"force_charge=0 receiver got nonzero acceleration {a[1]}"
         # The other particle still feels the field.
         assert np.linalg.norm(a[0]) > 1e-6
 
@@ -177,8 +205,9 @@ class TestPairwiseConvention:
         sim = _build_pair_sim(source=[1.0, 0.0], force=[1.0, 1.0])
         a = _initial_accel(sim)
         # Particle 0 (responder=1) should feel nothing from a probe (source=0).
-        assert np.linalg.norm(a[0]) < 1e-12, (
-            f"Particle 0 saw force from a source=0 partner: a={a[0]}")
+        assert (
+            np.linalg.norm(a[0]) < 1e-12
+        ), f"Particle 0 saw force from a source=0 partner: a={a[0]}"
         # The probe itself (source=0, force=1) feels particle 0's field.
         assert np.linalg.norm(a[1]) > 1e-6
 
@@ -193,7 +222,8 @@ class TestPairwiseConvention:
         ratio = b_mag / a_mag
         assert ratio == pytest.approx(3.0, rel=1e-9), (
             f"B–B / A–A acceleration ratio is {ratio:.4f}, expected 3.0 "
-            f"(pre-fix bug gave 9.0).")
+            f"(pre-fix bug gave 9.0)."
+        )
 
     def test_legacy_charges_alias_still_works(self):
         """Passing the old ``charges=`` argument should keep the
@@ -204,8 +234,11 @@ class TestPairwiseConvention:
             charges=np.array([2.0, 2.0]),
             initial_positions=np.array([[-2.0, 0.0], [2.0, 0.0]]),
             initial_velocities=np.zeros((2, 2)),
-            force_law=poisson_2d_force, potential_law=poisson_2d_potential,
-            integrator="leapfrog", dt=1e-3, softening=0.0,
+            force_law=poisson_2d_force,
+            potential_law=poisson_2d_potential,
+            integrator="leapfrog",
+            dt=1e-3,
+            softening=0.0,
             spatial_dimensions=2,
         )
         a_new = _initial_accel(sim_new)
@@ -219,7 +252,8 @@ class TestAPIValidation:
     def test_partial_split_args_rejected(self):
         with pytest.raises(ValueError, match="both"):
             NBodySampler(
-                masses=np.ones(2), source_charges=np.ones(2),
+                masses=np.ones(2),
+                source_charges=np.ones(2),
                 initial_positions=np.zeros((2, 2)),
                 initial_velocities=np.zeros((2, 2)),
                 force_law=poisson_2d_force,
@@ -231,7 +265,8 @@ class TestAPIValidation:
             NBodySampler(
                 masses=np.ones(2),
                 charges=np.ones(2),
-                source_charges=np.ones(2), force_charges=np.ones(2),
+                source_charges=np.ones(2),
+                force_charges=np.ones(2),
                 initial_positions=np.zeros((2, 2)),
                 initial_velocities=np.zeros((2, 2)),
                 force_law=poisson_2d_force,
@@ -242,7 +277,8 @@ class TestAPIValidation:
         with pytest.raises(ValueError, match="same shape"):
             NBodySampler(
                 masses=np.ones(2),
-                source_charges=np.ones(3), force_charges=np.ones(2),
+                source_charges=np.ones(3),
+                force_charges=np.ones(2),
                 initial_positions=np.zeros((2, 2)),
                 initial_velocities=np.zeros((2, 2)),
                 force_law=poisson_2d_force,

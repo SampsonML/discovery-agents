@@ -39,6 +39,7 @@ A standard library of force / potential laws lives in
 ``physchool.worlds.force_laws``; analytic reference solutions used to
 benchmark the simulator live in ``physchool.worlds.analytic_orbits``.
 """
+
 from __future__ import annotations
 
 from typing import Callable, Optional
@@ -53,10 +54,11 @@ jax.config.update("jax_enable_x64", True)
 
 # ── Pairwise force / energy computation ────────────────────────────────────
 
+
 def _pairwise_displacements(positions, softening):
     """Return r_ij = r_j - r_i, ||r_ij||, and softened ||r_ij|| for all pairs."""
-    diff = positions[None, :, :] - positions[:, None, :]      # (n, n, dim)
-    r2 = jnp.sum(diff * diff, axis=-1)                        # (n, n)
+    diff = positions[None, :, :] - positions[:, None, :]  # (n, n, dim)
+    r2 = jnp.sum(diff * diff, axis=-1)  # (n, n)
     r_mag = jnp.sqrt(r2)
     r_eff = jnp.sqrt(r2 + softening**2)
     return diff, r_mag, r_eff
@@ -152,9 +154,11 @@ _YOSHIDA4_D = (_W4, 1.0 - 2.0 * _W4, _W4)
 # Yoshida 6th-order, "solution A" coefficients from H. Yoshida (1990).
 _Y6_W = (
     -0.117767998417887e1,
-     0.235573213359357e0,
-     0.784513610477560e0,
+    0.235573213359357e0,
+    0.784513610477560e0,
 )
+
+
 def _yoshida6_coefs():
     w1, w2, w3 = _Y6_W
     w0 = 1.0 - 2.0 * (w1 + w2 + w3)
@@ -165,10 +169,13 @@ def _yoshida6_coefs():
         c.append(0.5 * (d[i - 1] + d[i]))
     c.append(0.5 * d[-1])
     return tuple(c), d
+
+
 _YOSHIDA6_C, _YOSHIDA6_D = _yoshida6_coefs()
 
 
 # ── Step functions ─────────────────────────────────────────────────────────
+
 
 def _make_step(integrator: str, accel_fn: Callable, dt: float):
     """Return ``step(state) -> new_state`` JIT-compiled for the given integrator.
@@ -179,8 +186,8 @@ def _make_step(integrator: str, accel_fn: Callable, dt: float):
     def euler_step(state):
         pos, vel = state
         a = accel_fn(pos)
-        vel = vel + dt * a            # kick
-        pos = pos + dt * vel          # drift
+        vel = vel + dt * a  # kick
+        pos = pos + dt * vel  # drift
         return (pos, vel)
 
     def leapfrog_step(state):
@@ -206,18 +213,16 @@ def _make_step(integrator: str, accel_fn: Callable, dt: float):
                 vel = vel + d_arr[i] * dt * accel_fn(pos)
             pos = pos + c_arr[-1] * dt * vel
             return (pos, vel)
+
         return yoshida_step
 
     def rk4_step(state):
         pos, vel = state
         # ODE: dpos/dt = vel ; dvel/dt = a(pos)
         k1_p, k1_v = vel, accel_fn(pos)
-        k2_p, k2_v = (vel + 0.5 * dt * k1_v,
-                      accel_fn(pos + 0.5 * dt * k1_p))
-        k3_p, k3_v = (vel + 0.5 * dt * k2_v,
-                      accel_fn(pos + 0.5 * dt * k2_p))
-        k4_p, k4_v = (vel + dt * k3_v,
-                      accel_fn(pos + dt * k3_p))
+        k2_p, k2_v = (vel + 0.5 * dt * k1_v, accel_fn(pos + 0.5 * dt * k1_p))
+        k3_p, k3_v = (vel + 0.5 * dt * k2_v, accel_fn(pos + 0.5 * dt * k2_p))
+        k4_p, k4_v = (vel + dt * k3_v, accel_fn(pos + dt * k3_p))
         pos = pos + (dt / 6.0) * (k1_p + 2 * k2_p + 2 * k3_p + k4_p)
         vel = vel + (dt / 6.0) * (k1_v + 2 * k2_v + 2 * k3_v + k4_v)
         return (pos, vel)
@@ -243,11 +248,17 @@ def _make_step(integrator: str, accel_fn: Callable, dt: float):
 
 # ── Public class ───────────────────────────────────────────────────────────
 
+
 class NBodySampler:
     """Direct O(N^2) N-body simulator with selectable integrator."""
 
     SUPPORTED_INTEGRATORS = (
-        "euler", "leapfrog", "yoshida4", "yoshida6", "rk4", "dopri5",
+        "euler",
+        "leapfrog",
+        "yoshida4",
+        "yoshida6",
+        "rk4",
+        "dopri5",
     )
 
     def __init__(
@@ -264,10 +275,12 @@ class NBodySampler:
         dt: float = 0.01,
         softening: float = 0.0,
         spatial_dimensions: Optional[int] = None,
+        external_acceleration=None,
     ):
         if integrator not in self.SUPPORTED_INTEGRATORS:
             raise ValueError(
-                f"Integrator {integrator!r} not in {self.SUPPORTED_INTEGRATORS}")
+                f"Integrator {integrator!r} not in {self.SUPPORTED_INTEGRATORS}"
+            )
         self.integrator = integrator
         self.dt = float(dt)
         self.softening = float(softening)
@@ -287,11 +300,13 @@ class NBodySampler:
         if source_charges is not None or force_charges is not None:
             if source_charges is None or force_charges is None:
                 raise ValueError(
-                    "Pass both `source_charges` and `force_charges`, or neither.")
+                    "Pass both `source_charges` and `force_charges`, or neither."
+                )
             if charges is not None:
                 raise ValueError(
                     "Cannot pass `charges` together with `source_charges` / "
-                    "`force_charges`; pick one calling convention.")
+                    "`force_charges`; pick one calling convention."
+                )
             self.source_charges = jnp.asarray(source_charges, dtype=jnp.float64)
             self.force_charges = jnp.asarray(force_charges, dtype=jnp.float64)
         elif charges is not None:
@@ -302,10 +317,13 @@ class NBodySampler:
             self.source_charges = self.masses
             self.force_charges = self.masses
 
-        if (self.source_charges.shape != self.masses.shape
-                or self.force_charges.shape != self.masses.shape):
+        if (
+            self.source_charges.shape != self.masses.shape
+            or self.force_charges.shape != self.masses.shape
+        ):
             raise ValueError(
-                "source_charges, force_charges, and masses must all share the same shape")
+                "source_charges, force_charges, and masses must all share the same shape"
+            )
         # Backwards-compatible alias on the source array (the role ``charges``
         # historically played for analyses that assumed source = response).
         self.charges = self.source_charges
@@ -318,8 +336,10 @@ class NBodySampler:
             raise ValueError("masses, positions, velocities must agree on N")
         self.n_particles = self.positions.shape[0]
         self.spatial_dimensions = (
-            spatial_dimensions if spatial_dimensions is not None
-            else self.positions.shape[1])
+            spatial_dimensions
+            if spatial_dimensions is not None
+            else self.positions.shape[1]
+        )
         self.time = 0.0
 
         # JIT-compiled helpers closed over the user force/potential laws.
@@ -329,12 +349,48 @@ class NBodySampler:
         else:
             self._potential_fn = None
 
+        # Optional external acceleration applied to every particle each step.
+        # Two shapes are accepted:
+        #   * a constant ``(D,)`` array — uniform body-force (e.g. the ether
+        #     world's northward push), broadcast to every particle.
+        #   * a callable ``f(positions) -> (N, D)`` — position-dependent body
+        #     force (e.g. a Hubble flow ``H · r``, a vortex, etc.). Must be
+        #     JAX-traceable so it can be jitted alongside the integrator.
+        # ``None`` means no external term.
+        self._external_accel_fn: Optional[Callable] = None
+        self.external_acceleration = None
+        if external_acceleration is not None:
+            if callable(external_acceleration):
+                self.external_acceleration = external_acceleration
+                self._external_accel_fn = external_acceleration
+            else:
+                ext = jnp.asarray(external_acceleration, dtype=jnp.float64)
+                if ext.shape != (self.spatial_dimensions,):
+                    raise ValueError(
+                        f"external_acceleration must have shape "
+                        f"({self.spatial_dimensions},), got {ext.shape}"
+                    )
+                self.external_acceleration = ext
+                # Wrap as a callable so the rest of the class only deals with
+                # one form (broadcast the constant vector to every particle).
+                self._external_accel_fn = lambda pos, _ext=ext: jnp.broadcast_to(
+                    _ext[None, :], pos.shape
+                )
+
         # Step functions assume charges and masses are fixed, so close over them.
         src_fixed = self.source_charges
         frc_fixed = self.force_charges
         masses_fixed = self.masses
-        accel_pos_only = jax.jit(
-            lambda pos: self._accel_fn(pos, src_fixed, frc_fixed, masses_fixed))
+        ext_fn = self._external_accel_fn
+        if ext_fn is None:
+            accel_pos_only = jax.jit(
+                lambda pos: self._accel_fn(pos, src_fixed, frc_fixed, masses_fixed)
+            )
+        else:
+            accel_pos_only = jax.jit(
+                lambda pos: self._accel_fn(pos, src_fixed, frc_fixed, masses_fixed)
+                + ext_fn(pos)
+            )
 
         if integrator != "dopri5":
             self._step_fn = _make_step(integrator, accel_pos_only, self.dt)
@@ -387,7 +443,8 @@ class NBodySampler:
         if self.integrator == "dopri5":
             raise RuntimeError(
                 "Single-step interface not available for adaptive 'dopri5'; "
-                "use ``run`` instead.")
+                "use ``run`` instead."
+            )
         new_pos, new_vel = self._step_fn((self.positions, self.velocities))
         self.positions = new_pos
         self.velocities = new_vel
@@ -423,20 +480,16 @@ class NBodySampler:
         rec_n = int(record_every)
 
         def chunk(state, _):
-            state = jax.lax.fori_loop(
-                0, rec_n, lambda _i, s: step_fn(s), state)
+            state = jax.lax.fori_loop(0, rec_n, lambda _i, s: step_fn(s), state)
             return state, state
 
         n_records = n_steps // record_every
         state0 = (self.positions, self.velocities)
         # Initial state is recorded explicitly so users always see t=0.
-        final_state, recorded = jax.lax.scan(
-            chunk, state0, jnp.arange(n_records))
+        final_state, recorded = jax.lax.scan(chunk, state0, jnp.arange(n_records))
 
-        positions = jnp.concatenate(
-            [self.positions[None], recorded[0]], axis=0)
-        velocities = jnp.concatenate(
-            [self.velocities[None], recorded[1]], axis=0)
+        positions = jnp.concatenate([self.positions[None], recorded[0]], axis=0)
+        velocities = jnp.concatenate([self.velocities[None], recorded[1]], axis=0)
         times = self.time + jnp.arange(n_records + 1) * (self.dt * record_every)
 
         # Update internal state to the end of the run.
@@ -452,8 +505,9 @@ class NBodySampler:
 
     # ── Adaptive Dopri5 path ────────────────────────────────────────────
 
-    def _run_dopri5(self, n_steps: int, t_eval=None,
-                    rtol: float = 1e-10, atol: float = 1e-12):
+    def _run_dopri5(
+        self, n_steps: int, t_eval=None, rtol: float = 1e-10, atol: float = 1e-12
+    ):
         if t_eval is None:
             t_eval = self.time + jnp.arange(n_steps + 1) * self.dt
         else:
@@ -465,20 +519,22 @@ class NBodySampler:
         src = self.source_charges
         frc = self.force_charges
         masses = self.masses
+        ext_fn = self._external_accel_fn
 
         @jax.jit
         def rhs(y, t):
-            pos = y[:n * d].reshape((n, d))
-            vel = y[n * d:].reshape((n, d))
+            pos = y[: n * d].reshape((n, d))
+            vel = y[n * d :].reshape((n, d))
             a = accel(pos, src, frc, masses)
+            if ext_fn is not None:
+                a = a + ext_fn(pos)
             return jnp.concatenate([vel.reshape(-1), a.reshape(-1)])
 
-        y0 = jnp.concatenate([self.positions.reshape(-1),
-                              self.velocities.reshape(-1)])
+        y0 = jnp.concatenate([self.positions.reshape(-1), self.velocities.reshape(-1)])
 
         ys = odeint(rhs, y0, t_eval, rtol=rtol, atol=atol, mxstep=50_000)
-        positions = ys[:, :n * d].reshape((-1, n, d))
-        velocities = ys[:, n * d:].reshape((-1, n, d))
+        positions = ys[:, : n * d].reshape((-1, n, d))
+        velocities = ys[:, n * d :].reshape((-1, n, d))
 
         self.positions = positions[-1]
         self.velocities = velocities[-1]

@@ -4,6 +4,7 @@ These functions are intentionally kept out of the core simulator so that the
 simulator is free of any test / verification code.  They are imported by the
 integrator-comparison notebook to provide ground-truth trajectories.
 """
+
 from __future__ import annotations
 
 from typing import Callable
@@ -11,8 +12,8 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 
-
 # ── Kepler equation solver ─────────────────────────────────────────────────
+
 
 def solve_kepler(mean_anomaly, eccentricity, max_iter: int = 64):
     """Solve ``E - e sin E = M`` for the eccentric anomaly ``E``.
@@ -36,9 +37,16 @@ def solve_kepler(mean_anomaly, eccentricity, max_iter: int = 64):
 
 # ── Two-body Kepler orbit ──────────────────────────────────────────────────
 
-def kepler_two_body_solution(times, M_central, m_orbiter, semi_major,
-                             eccentricity, G: float = 1.0,
-                             t_periapsis: float = 0.0):
+
+def kepler_two_body_solution(
+    times,
+    M_central,
+    m_orbiter,
+    semi_major,
+    eccentricity,
+    G: float = 1.0,
+    t_periapsis: float = 0.0,
+):
     """Closed-form bound Kepler orbit in 2D.
 
     The returned trajectory is the *relative* orbit (orbiter relative to
@@ -59,7 +67,7 @@ def kepler_two_body_solution(times, M_central, m_orbiter, semi_major,
     a = semi_major
     e = eccentricity
     mu = G * (M_central + m_orbiter)
-    n = jnp.sqrt(mu / a**3)              # mean motion
+    n = jnp.sqrt(mu / a**3)  # mean motion
     period = 2 * jnp.pi / n
 
     M = n * (jnp.asarray(times) - t_periapsis)
@@ -84,8 +92,10 @@ def kepler_two_body_solution(times, M_central, m_orbiter, semi_major,
 
 # ── Circular-orbit velocity for arbitrary central forces ───────────────────
 
-def circular_orbit_velocity(force_law: Callable, M_central, m_orbiter, radius,
-                             q_central=None, q_orbiter=None):
+
+def circular_orbit_velocity(
+    force_law: Callable, M_central, m_orbiter, radius, q_central=None, q_orbiter=None
+):
     """Tangential speed for a circular orbit at radius ``r`` (test-mass limit).
 
     Solves ``F(r) = m v^2 / r`` → ``v = sqrt(F(r) r / m)`` using whatever
@@ -98,7 +108,13 @@ def circular_orbit_velocity(force_law: Callable, M_central, m_orbiter, radius,
         q_central = M_central
     if q_orbiter is None:
         q_orbiter = m_orbiter
-    F = float(force_law(jnp.asarray(radius),
-                        jnp.asarray(q_central), jnp.asarray(q_orbiter),
-                        jnp.asarray(M_central), jnp.asarray(m_orbiter)))
+    F = float(
+        force_law(
+            jnp.asarray(radius),
+            jnp.asarray(q_central),
+            jnp.asarray(q_orbiter),
+            jnp.asarray(M_central),
+            jnp.asarray(m_orbiter),
+        )
+    )
     return float(jnp.sqrt(F * radius / m_orbiter))

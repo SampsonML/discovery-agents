@@ -20,6 +20,8 @@ import sys
 import os
 from contextlib import contextmanager
 
+import jax.numpy as jnp
+
 # Make PhysicsSchool importable when running from repo root
 _repo_root = os.path.join(os.path.dirname(__file__), "..", "..", "PhysicsSchool")
 if _repo_root not in sys.path:
@@ -28,15 +30,18 @@ if _repo_root not in sys.path:
 from physchool.worlds.field_sampler import FieldSampler
 from physchool.worlds.nbody_sampler import NBodySampler
 from physchool.worlds.force_laws import (
-    poisson_2d_force, poisson_2d_potential,
-    yukawa_2d_force, yukawa_2d_potential,
-    riesz_2d_force, riesz_2d_potential,
+    poisson_2d_force,
+    poisson_2d_potential,
+    yukawa_2d_force,
+    yukawa_2d_potential,
+    riesz_2d_force,
+    riesz_2d_potential,
 )
-
 
 # ──────────────────────────────────────────────────────────────────────────
 # Helpers shared by the NBody* executors
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def _operator_to_pairwise(operators):
     """Translate a single FieldSampler operator dict into (force_law, potential_law).
@@ -56,7 +61,8 @@ def _operator_to_pairwise(operators):
     """
     if not isinstance(operators, list) or len(operators) != 1:
         raise ValueError(
-            f"engine='nbody' only supports a single operator at a time; got {operators!r}")
+            f"engine='nbody' only supports a single operator at a time; got {operators!r}"
+        )
     op = operators[0]
     op_type = op["type"]
     params = op.get("params", {})
@@ -64,17 +70,21 @@ def _operator_to_pairwise(operators):
 
     if op_type == "laplacian":
         force_law = lambda r, qi, qj, mi, mj: poisson_2d_force(  # noqa: E731
-            r, qi, qj, mi, mj, G=strength)
+            r, qi, qj, mi, mj, G=strength
+        )
         pot_law = lambda r, qi, qj, mi, mj: poisson_2d_potential(  # noqa: E731
-            r, qi, qj, mi, mj, G=strength)
+            r, qi, qj, mi, mj, G=strength
+        )
         return force_law, pot_law
 
     if op_type == "screening":
         lam = float(params["screening_length"])
         force_law = lambda r, qi, qj, mi, mj: yukawa_2d_force(  # noqa: E731
-            r, qi, qj, mi, mj, G=strength, lam=lam)
+            r, qi, qj, mi, mj, G=strength, lam=lam
+        )
         pot_law = lambda r, qi, qj, mi, mj: yukawa_2d_potential(  # noqa: E731
-            r, qi, qj, mi, mj, G=strength, lam=lam)
+            r, qi, qj, mi, mj, G=strength, lam=lam
+        )
         return force_law, pot_law
 
     if op_type == "helmholtz":
@@ -82,26 +92,30 @@ def _operator_to_pairwise(operators):
         m2 = float(params["mass_squared"])
         lam = 1.0 / np.sqrt(m2)
         force_law = lambda r, qi, qj, mi, mj: yukawa_2d_force(  # noqa: E731
-            r, qi, qj, mi, mj, G=strength, lam=lam)
+            r, qi, qj, mi, mj, G=strength, lam=lam
+        )
         pot_law = lambda r, qi, qj, mi, mj: yukawa_2d_potential(  # noqa: E731
-            r, qi, qj, mi, mj, G=strength, lam=lam)
+            r, qi, qj, mi, mj, G=strength, lam=lam
+        )
         return force_law, pot_law
 
     if op_type == "fractional_laplacian":
         alpha = float(params["alpha"])
         force_law = lambda r, qi, qj, mi, mj: riesz_2d_force(  # noqa: E731
-            r, qi, qj, mi, mj, G=strength, alpha=alpha)
+            r, qi, qj, mi, mj, G=strength, alpha=alpha
+        )
         pot_law = lambda r, qi, qj, mi, mj: riesz_2d_potential(  # noqa: E731
-            r, qi, qj, mi, mj, G=strength, alpha=alpha)
+            r, qi, qj, mi, mj, G=strength, alpha=alpha
+        )
         return force_law, pot_law
 
     raise ValueError(
         f"engine='nbody' does not support operator type {op_type!r}; "
-        "diffusion / wave / arbitrary linear operators must use engine='field'.")
+        "diffusion / wave / arbitrary linear operators must use engine='field'."
+    )
 
 
-def _record_at_times(sim: NBodySampler, dt: float, duration: float,
-                      measurement_times):
+def _record_at_times(sim: NBodySampler, dt: float, duration: float, measurement_times):
     """Run an NBody sim with fixed ``dt`` for ``duration`` and return
     ``(pos, vel)`` slices at each requested measurement time.
 
@@ -111,22 +125,25 @@ def _record_at_times(sim: NBodySampler, dt: float, duration: float,
     """
     n_steps_total = max(int(round(duration / dt)), 1)
     traj = sim.run(n_steps=n_steps_total, record_every=1)
-    positions = np.asarray(traj["positions"])    # (n_steps_total + 1, N, D)
+    positions = np.asarray(traj["positions"])  # (n_steps_total + 1, N, D)
     velocities = np.asarray(traj["velocities"])
     indices = []
     for mt in measurement_times:
         idx = int(round(float(mt) / dt))
         idx = max(0, min(n_steps_total, idx))
         indices.append(idx)
-    return (np.array([positions[i] for i in indices]),
-            np.array([velocities[i] for i in indices]))
+    return (
+        np.array([positions[i] for i in indices]),
+        np.array([velocities[i] for i in indices]),
+    )
 
 
 def _check_nbody_supports(temporal_order):
     if temporal_order != 0:
         raise ValueError(
             "engine='nbody' supports only temporal_order=0 (instantaneous "
-            "central forces); the diffusion / wave worlds need engine='field'.")
+            "central forces); the diffusion / wave worlds need engine='field'."
+        )
 
 
 class _NoisyExecutorMixin:
@@ -1025,7 +1042,7 @@ class NBodySimulationExecutor(_NoisyExecutorMixin):
         self,
         operators=None,
         temporal_order=0,
-        grid_size=None,                 # accepted+ignored for API parity
+        grid_size=None,  # accepted+ignored for API parity
         domain_size=20.0,
         dt=0.005,
         noise_std=0.0,
@@ -1033,7 +1050,9 @@ class NBodySimulationExecutor(_NoisyExecutorMixin):
         integrator=_NBODY_INTEGRATOR_DEFAULT,
         softening=_NBODY_SOFTENING_DEFAULT,
     ):
-        self.operators = operators or [{"type": "laplacian", "params": {"strength": 1.0}}]
+        self.operators = operators or [
+            {"type": "laplacian", "params": {"strength": 1.0}}
+        ]
         self.temporal_order = temporal_order
         self.grid_size = grid_size
         self.domain_size = float(domain_size)
@@ -1068,10 +1087,13 @@ class NBodySimulationExecutor(_NoisyExecutorMixin):
         # We work in the same domain-centred coordinates as the FieldSampler
         # executor so the agent's pos/vel arrays are bit-compatible.
         centre = self.domain_size / 2.0
-        init_positions = np.array([
-            [centre, centre],
-            [centre + pos2[0], centre + pos2[1]],
-        ], dtype=np.float64)
+        init_positions = np.array(
+            [
+                [centre, centre],
+                [centre + pos2[0], centre + pos2[1]],
+            ],
+            dtype=np.float64,
+        )
         init_velocities = np.array([[0.0, 0.0], velocity2], dtype=np.float64)
 
         masses = np.array([1e15, p2], dtype=np.float64)
@@ -1080,16 +1102,21 @@ class NBodySimulationExecutor(_NoisyExecutorMixin):
 
         sim = NBodySampler(
             masses=masses,
-            source_charges=source_charges, force_charges=force_charges,
+            source_charges=source_charges,
+            force_charges=force_charges,
             initial_positions=init_positions,
             initial_velocities=init_velocities,
-            force_law=self._force_law, potential_law=self._potential_law,
-            integrator=self.integrator, dt=self.dt, softening=self.softening,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
             spatial_dimensions=2,
         )
 
         positions, velocities = _record_at_times(
-            sim, self.dt, duration, measurement_times)
+            sim, self.dt, duration, measurement_times
+        )
 
         # Subtract the (essentially zero) drift of the central particle so
         # the reported coordinates are relative to particle 0's location.
@@ -1124,7 +1151,10 @@ class NBodyCircleExecutor(_NoisyExecutorMixin):
         softening=_NBODY_SOFTENING_DEFAULT,
     ):
         self.operators = operators or [
-            {"type": "fractional_laplacian", "params": {"strength": 1.0, "alpha": self.ALPHA}}
+            {
+                "type": "fractional_laplacian",
+                "params": {"strength": 1.0, "alpha": self.ALPHA},
+            }
         ]
         self.temporal_order = temporal_order
         self.grid_size = grid_size
@@ -1136,8 +1166,11 @@ class NBodyCircleExecutor(_NoisyExecutorMixin):
         _check_nbody_supports(temporal_order)
         self._force_law, self._potential_law = _operator_to_pairwise(self.operators)
 
-    def run(self, experiments): return [self._run_one(e) for e in experiments]
-    def run_json(self, s): return json.dumps(self.run(json.loads(s)), indent=2)
+    def run(self, experiments):
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, s):
+        return json.dumps(self.run(json.loads(s)), indent=2)
 
     def _run_one(self, exp):
         ring_radius = float(exp.get("ring_radius", 5.0))
@@ -1147,29 +1180,36 @@ class NBodyCircleExecutor(_NoisyExecutorMixin):
 
         centre = self.domain_size / 2.0
         angles = np.linspace(0, 2 * np.pi, self.N_RING, endpoint=False)
-        ring_pos = np.column_stack([
-            centre + ring_radius * np.cos(angles),
-            centre + ring_radius * np.sin(angles),
-        ])
+        ring_pos = np.column_stack(
+            [
+                centre + ring_radius * np.cos(angles),
+                centre + ring_radius * np.sin(angles),
+            ]
+        )
         positions = np.vstack([[[centre, centre]], ring_pos])
-        ring_vel = np.column_stack([-v_tang * np.sin(angles),
-                                     v_tang * np.cos(angles)])
+        ring_vel = np.column_stack([-v_tang * np.sin(angles), v_tang * np.cos(angles)])
         velocities = np.vstack([[[0.0, 0.0]], ring_vel])
 
         masses = np.ones(self.N_TOTAL)
-        source_charges = np.ones(self.N_TOTAL)   # uniform coupling
-        force_charges = np.ones(self.N_TOTAL)    # all particles respond identically
+        source_charges = np.ones(self.N_TOTAL)  # uniform coupling
+        force_charges = np.ones(self.N_TOTAL)  # all particles respond identically
 
         sim = NBodySampler(
             masses=masses,
-            source_charges=source_charges, force_charges=force_charges,
-            initial_positions=positions, initial_velocities=velocities,
-            force_law=self._force_law, potential_law=self._potential_law,
-            integrator=self.integrator, dt=self.dt, softening=self.softening,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=positions,
+            initial_velocities=velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
             spatial_dimensions=2,
         )
         positions_rec, velocities_rec = _record_at_times(
-            sim, self.dt, duration, measurement_times)
+            sim, self.dt, duration, measurement_times
+        )
 
         pos_traj = [self._noisy_positions(p - centre).tolist() for p in positions_rec]
         vel_traj = [v.tolist() for v in velocities_rec]
@@ -1214,8 +1254,11 @@ class NBodySpeciesExecutor(_NoisyExecutorMixin):
         _check_nbody_supports(temporal_order)
         self._force_law, self._potential_law = _operator_to_pairwise(self.operators)
 
-    def run(self, experiments): return [self._run_one(e) for e in experiments]
-    def run_json(self, s): return json.dumps(self.run(json.loads(s)), indent=2)
+    def run(self, experiments):
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, s):
+        return json.dumps(self.run(json.loads(s)), indent=2)
 
     def _run_one(self, exp):
         positions_rel = np.array(exp["positions"], dtype=np.float64)
@@ -1238,18 +1281,25 @@ class NBodySpeciesExecutor(_NoisyExecutorMixin):
 
         sim = NBodySampler(
             masses=masses,
-            source_charges=source_charges, force_charges=force_charges,
-            initial_positions=positions, initial_velocities=velocities,
-            force_law=self._force_law, potential_law=self._potential_law,
-            integrator=self.integrator, dt=self.dt, softening=self.softening,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=positions,
+            initial_velocities=velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
             spatial_dimensions=2,
         )
         positions_rec, velocities_rec = _record_at_times(
-            sim, self.dt, duration, measurement_times)
+            sim, self.dt, duration, measurement_times
+        )
         return {
             "measurement_times": measurement_times,
-            "positions": [self._noisy_positions(p - centre).tolist()
-                          for p in positions_rec],
+            "positions": [
+                self._noisy_positions(p - centre).tolist() for p in positions_rec
+            ],
             "velocities": [v.tolist() for v in velocities_rec],
         }
 
@@ -1297,8 +1347,11 @@ class NBodyThreeSpeciesExecutor(_NoisyExecutorMixin):
         self._bg_positions_rel = rng.uniform(-10, 10, (self.N_BACKGROUND, 2))
         self._bg_velocities = np.zeros((self.N_BACKGROUND, 2))
 
-    def run(self, experiments): return [self._run_one(e) for e in experiments]
-    def run_json(self, s): return json.dumps(self.run(json.loads(s)), indent=2)
+    def run(self, experiments):
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, s):
+        return json.dumps(self.run(json.loads(s)), indent=2)
 
     def _run_one(self, exp):
         probe_pos_rel = np.array(exp["probe_positions"], dtype=np.float64)
@@ -1310,10 +1363,12 @@ class NBodyThreeSpeciesExecutor(_NoisyExecutorMixin):
         assert probe_vel.shape == (self.N_PROBES, 2)
 
         centre = self.domain_size / 2.0
-        positions = np.vstack([
-            self._bg_positions_rel + centre,
-            probe_pos_rel + centre,
-        ])
+        positions = np.vstack(
+            [
+                self._bg_positions_rel + centre,
+                probe_pos_rel + centre,
+            ]
+        )
         velocities = np.vstack([self._bg_velocities, probe_vel])
 
         masses = np.ones(self.N_TOTAL)
@@ -1328,18 +1383,25 @@ class NBodyThreeSpeciesExecutor(_NoisyExecutorMixin):
 
         sim = NBodySampler(
             masses=masses,
-            source_charges=source_charges, force_charges=force_charges,
-            initial_positions=positions, initial_velocities=velocities,
-            force_law=self._force_law, potential_law=self._potential_law,
-            integrator=self.integrator, dt=self.dt, softening=self.softening,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=positions,
+            initial_velocities=velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
             spatial_dimensions=2,
         )
         positions_rec, velocities_rec = _record_at_times(
-            sim, self.dt, duration, measurement_times)
+            sim, self.dt, duration, measurement_times
+        )
         return {
             "measurement_times": measurement_times,
-            "positions": [self._noisy_positions(p - centre).tolist()
-                          for p in positions_rec],
+            "positions": [
+                self._noisy_positions(p - centre).tolist() for p in positions_rec
+            ],
             "velocities": [v.tolist() for v in velocities_rec],
             "background_initial_positions": self._bg_positions_rel.tolist(),
         }
@@ -1391,10 +1453,12 @@ class NBodyDarkMatterExecutor(_NoisyExecutorMixin):
         rng = np.random.RandomState(123)
         vis_angles = rng.uniform(0, 2 * np.pi, self.N_VISIBLE)
         vis_radii = rng.uniform(8, 15, self.N_VISIBLE)
-        self._visible_positions_rel = np.column_stack([
-            vis_radii * np.cos(vis_angles),
-            vis_radii * np.sin(vis_angles),
-        ])
+        self._visible_positions_rel = np.column_stack(
+            [
+                vis_radii * np.cos(vis_angles),
+                vis_radii * np.sin(vis_angles),
+            ]
+        )
         self._dark_positions_rel = rng.normal(0, 1.0, (self.N_DARK, 2))
 
         # 2D-Poisson v_circ for the visible particles using enclosed coupling.
@@ -1414,31 +1478,43 @@ class NBodyDarkMatterExecutor(_NoisyExecutorMixin):
 
         v_circ = np.sqrt(np.maximum(Q_enc, 0.0) / (2 * np.pi))
         r_safe = np.maximum(vis_r, 1e-6)
-        tangent = np.column_stack([
-            -self._visible_positions_rel[:, 1],
-             self._visible_positions_rel[:, 0],
-        ]) / r_safe[:, None]
+        tangent = (
+            np.column_stack(
+                [
+                    -self._visible_positions_rel[:, 1],
+                    self._visible_positions_rel[:, 0],
+                ]
+            )
+            / r_safe[:, None]
+        )
         self._visible_velocities = v_circ[:, None] * tangent
         self._dark_velocities = np.zeros((self.N_DARK, 2))
 
         self._agent_indices = self.VISIBLE + self.PROBES
 
-    def run(self, experiments): return [self._run_one(e) for e in experiments]
-    def run_json(self, s): return json.dumps(self.run(json.loads(s)), indent=2)
+    def run(self, experiments):
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, s):
+        return json.dumps(self.run(json.loads(s)), indent=2)
 
     def _build_sim(self, probe_pos_rel, probe_vel, vis_vel_sign):
         """Construct the NBodySampler with the standard visible+dark+probe layout."""
         centre = self.domain_size / 2.0
-        positions = np.vstack([
-            self._visible_positions_rel + centre,
-            self._dark_positions_rel + centre,
-            probe_pos_rel + centre,
-        ])
-        velocities = np.vstack([
-            vis_vel_sign * self._visible_velocities,
-            self._dark_velocities,
-            probe_vel,
-        ])
+        positions = np.vstack(
+            [
+                self._visible_positions_rel + centre,
+                self._dark_positions_rel + centre,
+                probe_pos_rel + centre,
+            ]
+        )
+        velocities = np.vstack(
+            [
+                vis_vel_sign * self._visible_velocities,
+                self._dark_velocities,
+                probe_vel,
+            ]
+        )
 
         masses = np.ones(self.N_TOTAL)
         source_charges = np.zeros(self.N_TOTAL)
@@ -1453,10 +1529,15 @@ class NBodyDarkMatterExecutor(_NoisyExecutorMixin):
 
         sim = NBodySampler(
             masses=masses,
-            source_charges=source_charges, force_charges=force_charges,
-            initial_positions=positions, initial_velocities=velocities,
-            force_law=self._force_law, potential_law=self._potential_law,
-            integrator=self.integrator, dt=self.dt, softening=self.softening,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=positions,
+            initial_velocities=velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
             spatial_dimensions=2,
         )
         return sim, centre
@@ -1473,16 +1554,17 @@ class NBodyDarkMatterExecutor(_NoisyExecutorMixin):
 
         sim, centre = self._build_sim(probe_pos_rel, probe_vel, vis_vel_sign)
         positions_rec, velocities_rec = _record_at_times(
-            sim, self.dt, duration, measurement_times)
+            sim, self.dt, duration, measurement_times
+        )
 
         # Return only visible + probe particles, mirroring the field-engine.
         return {
             "measurement_times": measurement_times,
-            "positions": [self._noisy_positions(
-                                p[self._agent_indices] - centre).tolist()
-                          for p in positions_rec],
-            "velocities": [v[self._agent_indices].tolist()
-                           for v in velocities_rec],
+            "positions": [
+                self._noisy_positions(p[self._agent_indices] - centre).tolist()
+                for p in positions_rec
+            ],
+            "velocities": [v[self._agent_indices].tolist() for v in velocities_rec],
             "background_initial_positions": self._visible_positions_rel.tolist(),
         }
 
@@ -1507,13 +1589,445 @@ class NBodyDarkMatterExecutor(_NoisyExecutorMixin):
 
         sim, centre = self._build_sim(probe_pos_rel, probe_vel, vis_vel_sign)
         positions_rec, velocities_rec = _record_at_times(
-            sim, self.dt, duration, measurement_times)
+            sim, self.dt, duration, measurement_times
+        )
 
         return {
             "measurement_times": measurement_times,
-            "positions": [(p - centre).tolist() for p in positions_rec],   # (T, 35, 2)
-            "velocities": [v.tolist() for v in velocities_rec],            # (T, 35, 2)
-            "field_snapshots": [],                                         # no grid field in nbody
+            "positions": [(p - centre).tolist() for p in positions_rec],  # (T, 35, 2)
+            "velocities": [v.tolist() for v in velocities_rec],  # (T, 35, 2)
+            "field_snapshots": [],  # no grid field in nbody
             "dark_initial_positions": self._dark_positions_rel.tolist(),
             "background_initial_positions": self._visible_positions_rel.tolist(),
+        }
+
+
+class NBodyEtherExecutor(_NoisyExecutorMixin):
+    """
+    Ether world: 21 background particles (1 anchor + 20 ring orbiters) + 5
+    probes = 26 total, all visible to the agent.
+
+    Hidden physics:
+      * 2D Laplacian central attraction sourced by particle 0 (the anchor),
+        with source_coupling = 50.  Anchor mass = 1e15 (effectively immobile
+        under inter-particle forces) and force_charge = 0 (no pairwise
+        response).
+      * 20 orbiters are test particles (source_charge = 0) with masses
+        cycling through {1, 2, 4} (7 / 7 / 6 split).  All have force_charge
+        = mass, so the central force gives mass-independent orbital motion
+        in 2D Laplacian gravity.
+      * 5 probes are test particles with default mass 1.0 and the same
+        force_charge = mass convention.
+      * Background "ether" field: a uniform northward acceleration α·ŷ is
+        applied to *every* particle each step.  This is equivalent to a
+        body-force F = α·m·ŷ — i.e. force proportional to mass, producing
+        a mass-independent drift acceleration (Galilean / equivalence).
+
+    Initial layout:
+      * Anchor at the domain centre.
+      * Orbiters on a ring at radius 5.0, equally spaced, with circular
+        tangential velocity v = √(50 / (2π)) ≈ 1.785 (independent of mass
+        in 2D Laplacian).
+
+    Experiment format:
+        {
+            "probe_positions":  [[x, y], ...],     # 5 positions (relative to centre)
+            "probe_velocities": [[vx, vy], ...],   # 5 initial velocities
+            "probe_masses":     [m, ...],          # OPTIONAL 5 masses (default 1.0)
+            "measurement_times": [float, ...]
+        }
+
+    Returns:
+        {
+            "measurement_times": [...],
+            "positions":     [[[x,y], ...], ...],  # (T, 26, 2), domain-centred
+            "velocities":    [[[vx,vy], ...], ...],# (T, 26, 2)
+            "particle_masses": [m0, ..., m25],     # length-26 mass array
+            "background_initial_positions": [[x,y], ...]   # (21, 2)
+            "background_initial_velocities": [[vx,vy], ...]# (21, 2)
+        }
+    """
+
+    N_BACKGROUND = 21  # 1 anchor + 20 orbiters
+    N_RING = 20
+    N_PROBES = 5
+    N_TOTAL = 26
+
+    ANCHOR_INDEX = 0
+    RING_INDICES = list(range(1, 21))
+    PROBE_INDICES = list(range(21, 26))
+
+    ANCHOR_MASS = 1e15
+    ANCHOR_SOURCE = 50.0
+    RING_RADIUS = 5.0
+
+    # Mass-class pattern cycled across the 20 orbiters
+    MASS_PATTERN = (1.0, 2.0, 4.0)
+    DEFAULT_PROBE_MASS = 1.0
+
+    # Northward ether acceleration.  See class docstring for the
+    # F = α·m·ŷ ↔ a = α·ŷ equivalence.
+    ETHER_ALPHA = 0.05
+
+    def __init__(
+        self,
+        operators=None,
+        temporal_order=0,
+        grid_size=None,  # accepted+ignored for API parity
+        domain_size=50.0,
+        dt=0.005,
+        noise_std=0.0,
+        noise_seed=None,
+        integrator=_NBODY_INTEGRATOR_DEFAULT,
+        softening=_NBODY_SOFTENING_DEFAULT,
+    ):
+        # Hidden operator: standard 2D Laplacian (gravity-like).  The anchor
+        # is the only sourcer, so this defines the central force law.
+        self.operators = operators or [
+            {"type": "laplacian", "params": {"strength": 1.0}}
+        ]
+        self.temporal_order = temporal_order
+        self.grid_size = grid_size
+        self.domain_size = float(domain_size)
+        self.dt = float(dt)
+        self.integrator = integrator
+        self.softening = float(softening)
+        self._init_noise(noise_std, noise_seed)
+        _check_nbody_supports(temporal_order)
+        self._force_law, self._potential_law = _operator_to_pairwise(self.operators)
+
+        # Fixed orbiter ring layout (mass class cycled as 1, 2, 4, 1, 2, 4, …)
+        angles = np.linspace(0, 2 * np.pi, self.N_RING, endpoint=False)
+        self._ring_positions_rel = np.column_stack(
+            [
+                self.RING_RADIUS * np.cos(angles),
+                self.RING_RADIUS * np.sin(angles),
+            ]
+        )
+        self._ring_masses = np.array(
+            [self.MASS_PATTERN[i % len(self.MASS_PATTERN)] for i in range(self.N_RING)],
+            dtype=np.float64,
+        )
+        # 2D Laplacian circular velocity is r-independent and mass-independent:
+        # v² = G · Q_anchor / (2π), where Q_anchor = ANCHOR_SOURCE.
+        v_circ = np.sqrt(self.ANCHOR_SOURCE / (2 * np.pi))
+        # CCW tangent: (-sin, cos)
+        self._ring_velocities = v_circ * np.column_stack(
+            [-np.sin(angles), np.cos(angles)]
+        )
+
+        # Background = anchor + ring (in absolute "relative-to-centre" coords)
+        self._bg_positions_rel = np.vstack(
+            [
+                np.array([[0.0, 0.0]]),  # anchor at origin
+                self._ring_positions_rel,
+            ]
+        )
+        self._bg_velocities = np.vstack(
+            [
+                np.array([[0.0, 0.0]]),  # anchor at rest
+                self._ring_velocities,
+            ]
+        )
+        self._bg_masses = np.concatenate(
+            [
+                np.array([self.ANCHOR_MASS]),
+                self._ring_masses,
+            ]
+        )
+
+    def run(self, experiments):
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, s):
+        return json.dumps(self.run(json.loads(s)), indent=2)
+
+    def _run_one(self, exp):
+        probe_pos_rel = np.array(exp["probe_positions"], dtype=np.float64)
+        probe_vel = np.array(exp["probe_velocities"], dtype=np.float64)
+        measurement_times = sorted(exp["measurement_times"])
+        duration = max(float(exp.get("duration", max(measurement_times))), 5.0)
+
+        assert probe_pos_rel.shape == (self.N_PROBES, 2)
+        assert probe_vel.shape == (self.N_PROBES, 2)
+
+        if "probe_masses" in exp and exp["probe_masses"] is not None:
+            probe_masses = np.array(exp["probe_masses"], dtype=np.float64)
+            assert probe_masses.shape == (self.N_PROBES,)
+        else:
+            probe_masses = np.full(
+                self.N_PROBES, self.DEFAULT_PROBE_MASS, dtype=np.float64
+            )
+
+        centre = self.domain_size / 2.0
+        positions = np.vstack(
+            [
+                self._bg_positions_rel + centre,
+                probe_pos_rel + centre,
+            ]
+        )
+        velocities = np.vstack([self._bg_velocities, probe_vel])
+
+        masses = np.concatenate([self._bg_masses, probe_masses])
+
+        # Source charges:
+        #   anchor → ANCHOR_SOURCE (the only sourcer)
+        #   orbiters / probes → 0 (test particles)
+        source_charges = np.zeros(self.N_TOTAL)
+        source_charges[self.ANCHOR_INDEX] = self.ANCHOR_SOURCE
+
+        # Force charges:
+        #   anchor → 0 (no pairwise response; effectively pinned)
+        #   orbiters / probes → mass (Newton convention so 2D-Laplacian
+        #   acceleration is independent of mass for circular orbits)
+        force_charges = np.zeros(self.N_TOTAL)
+        force_charges[self.RING_INDICES] = self._ring_masses
+        force_charges[self.PROBE_INDICES] = probe_masses
+
+        sim = NBodySampler(
+            masses=masses,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=positions,
+            initial_velocities=velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
+            spatial_dimensions=2,
+            external_acceleration=np.array([0.0, self.ETHER_ALPHA]),
+        )
+        positions_rec, velocities_rec = _record_at_times(
+            sim, self.dt, duration, measurement_times
+        )
+
+        return {
+            "measurement_times": measurement_times,
+            "positions": [
+                self._noisy_positions(p - centre).tolist() for p in positions_rec
+            ],
+            "velocities": [v.tolist() for v in velocities_rec],
+            "particle_masses": masses.tolist(),
+            "background_initial_positions": self._bg_positions_rel.tolist(),
+            "background_initial_velocities": self._bg_velocities.tolist(),
+        }
+
+
+class NBodyHubbleExecutor(_NoisyExecutorMixin):
+    """
+    Hubble-flow world: 21 background particles (1 anchor + 20 ring orbiters)
+    + 5 probes = 26 total, all visible to the agent.
+
+    Hidden physics:
+      * 2D Laplacian central attraction sourced by particle 0 (the anchor)
+        with source_coupling = 50.  Anchor mass = 1e15 (effectively immobile)
+        and force_charge = 0 (no pairwise response).
+      * 20 orbiters are test particles (source_charge = 0) with masses
+        cycling through {1, 2, 4} (7 / 7 / 6 split).  All have force_charge
+        = mass; in 2D Laplacian gravity their orbital speed is mass-
+        independent.
+      * 5 probes are test particles with default mass 1.0 and force_charge =
+        mass.
+      * "Hubble flow" body-force: every particle gets an *additional*
+        radially-outward acceleration linear in distance from the domain
+        centre, ``a_hubble = H · r`` with H ≈ 0.05.  Mass-independent.
+        Locally invisible (small near the anchor where central gravity
+        dominates), but probes placed far out are pushed outward —
+        exposing the linear-in-r law.
+
+    Critical radius where Hubble outward force balances central inward
+    gravity: ``r_crit = √(Q_anchor / (2π H)) ≈ 12.6`` for the default
+    parameters.  Inside ``r_crit`` orbits are bound (with reduced effective
+    gravity); outside, probes accelerate outward.
+
+    Initial layout:
+      * Anchor at the domain centre (so its ``a_hubble`` is exactly zero).
+      * Orbiters on a ring at radius 5.0, equally spaced, with
+        Hubble-corrected circular tangential velocity
+        ``v² = Q_anchor / (2π) − H · r²``.
+
+    Experiment format:
+        {
+            "probe_positions":  [[x, y], ...],     # 5 positions (relative to centre)
+            "probe_velocities": [[vx, vy], ...],   # 5 initial velocities
+            "probe_masses":     [m, ...],          # OPTIONAL 5 masses (default 1.0)
+            "measurement_times": [float, ...]
+        }
+
+    Returns:
+        {
+            "measurement_times": [...],
+            "positions":     [[[x,y], ...], ...],  # (T, 26, 2), domain-centred
+            "velocities":    [[[vx,vy], ...], ...],# (T, 26, 2)
+            "particle_masses": [m0, ..., m25],     # length-26 mass array
+            "background_initial_positions":  [[x,y], ...]   # (21, 2)
+            "background_initial_velocities": [[vx,vy], ...] # (21, 2)
+        }
+    """
+
+    N_BACKGROUND = 21  # 1 anchor + 20 orbiters
+    N_RING = 20
+    N_PROBES = 5
+    N_TOTAL = 26
+
+    ANCHOR_INDEX = 0
+    RING_INDICES = list(range(1, 21))
+    PROBE_INDICES = list(range(21, 26))
+
+    ANCHOR_MASS = 1e15
+    ANCHOR_SOURCE = 50.0
+    RING_RADIUS = 5.0
+
+    MASS_PATTERN = (1.0, 2.0, 4.0)
+    DEFAULT_PROBE_MASS = 1.0
+
+    # Hubble parameter — gives a_hubble = H · r outward, mass-independent.
+    HUBBLE_H = 0.05
+
+    def __init__(
+        self,
+        operators=None,
+        temporal_order=0,
+        grid_size=None,  # accepted+ignored for API parity
+        domain_size=50.0,
+        dt=0.005,
+        noise_std=0.0,
+        noise_seed=None,
+        integrator=_NBODY_INTEGRATOR_DEFAULT,
+        softening=_NBODY_SOFTENING_DEFAULT,
+    ):
+        # Hidden operator: standard 2D Laplacian (gravity-like).
+        self.operators = operators or [
+            {"type": "laplacian", "params": {"strength": 1.0}}
+        ]
+        self.temporal_order = temporal_order
+        self.grid_size = grid_size
+        self.domain_size = float(domain_size)
+        self.dt = float(dt)
+        self.integrator = integrator
+        self.softening = float(softening)
+        self._init_noise(noise_std, noise_seed)
+        _check_nbody_supports(temporal_order)
+        self._force_law, self._potential_law = _operator_to_pairwise(self.operators)
+
+        # Fixed orbiter ring layout (mass class cycled as 1, 2, 4, 1, 2, 4, …)
+        angles = np.linspace(0, 2 * np.pi, self.N_RING, endpoint=False)
+        self._ring_positions_rel = np.column_stack(
+            [
+                self.RING_RADIUS * np.cos(angles),
+                self.RING_RADIUS * np.sin(angles),
+            ]
+        )
+        self._ring_masses = np.array(
+            [self.MASS_PATTERN[i % len(self.MASS_PATTERN)] for i in range(self.N_RING)],
+            dtype=np.float64,
+        )
+        # Hubble-corrected circular orbital velocity:
+        #   v² = G · Q_anchor / (2π) − H · r²
+        # The ``− H · r²`` term reduces the inward effective gravity by the
+        # Hubble outward push.  At r=5, H=0.05, Q=50: v² ≈ 7.96 − 1.25 = 6.71.
+        v_circ_sq = (
+            self.ANCHOR_SOURCE / (2 * np.pi) - self.HUBBLE_H * self.RING_RADIUS**2
+        )
+        if v_circ_sq <= 0:
+            raise ValueError(
+                f"Hubble outward force exceeds central gravity at r={self.RING_RADIUS}; "
+                f"reduce HUBBLE_H or increase ANCHOR_SOURCE."
+            )
+        v_circ = float(np.sqrt(v_circ_sq))
+        # CCW tangent: (-sin, cos)
+        self._ring_velocities = v_circ * np.column_stack(
+            [-np.sin(angles), np.cos(angles)]
+        )
+
+        self._bg_positions_rel = np.vstack(
+            [np.array([[0.0, 0.0]]), self._ring_positions_rel]
+        )
+        self._bg_velocities = np.vstack([np.array([[0.0, 0.0]]), self._ring_velocities])
+        self._bg_masses = np.concatenate(
+            [np.array([self.ANCHOR_MASS]), self._ring_masses]
+        )
+
+    def run(self, experiments):
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, s):
+        return json.dumps(self.run(json.loads(s)), indent=2)
+
+    def _run_one(self, exp):
+        probe_pos_rel = np.array(exp["probe_positions"], dtype=np.float64)
+        probe_vel = np.array(exp["probe_velocities"], dtype=np.float64)
+        measurement_times = sorted(exp["measurement_times"])
+        duration = max(float(exp.get("duration", max(measurement_times))), 5.0)
+
+        assert probe_pos_rel.shape == (self.N_PROBES, 2)
+        assert probe_vel.shape == (self.N_PROBES, 2)
+
+        if "probe_masses" in exp and exp["probe_masses"] is not None:
+            probe_masses = np.array(exp["probe_masses"], dtype=np.float64)
+            assert probe_masses.shape == (self.N_PROBES,)
+        else:
+            probe_masses = np.full(
+                self.N_PROBES, self.DEFAULT_PROBE_MASS, dtype=np.float64
+            )
+
+        centre = self.domain_size / 2.0
+        positions = np.vstack(
+            [
+                self._bg_positions_rel + centre,
+                probe_pos_rel + centre,
+            ]
+        )
+        velocities = np.vstack([self._bg_velocities, probe_vel])
+
+        masses = np.concatenate([self._bg_masses, probe_masses])
+
+        # Source charges: anchor only.  Force charges: anchor 0, orbiters
+        # and probes equal to their mass (Newton convention so 2D-Laplacian
+        # circular orbits are mass-independent in r).
+        source_charges = np.zeros(self.N_TOTAL)
+        source_charges[self.ANCHOR_INDEX] = self.ANCHOR_SOURCE
+        force_charges = np.zeros(self.N_TOTAL)
+        force_charges[self.RING_INDICES] = self._ring_masses
+        force_charges[self.PROBE_INDICES] = probe_masses
+
+        # Hubble flow body-force: a = H · (pos_abs − centre_vec).  Captured
+        # as a JAX-traceable closure so NBodySampler can JIT it alongside
+        # the integrator.  ``centre_vec`` is the absolute domain centre
+        # — particles at the centre feel zero Hubble flow (so the anchor
+        # stays put), and outward radial distance gives outward push.
+        H = self.HUBBLE_H
+        centre_vec = jnp.array([centre, centre], dtype=jnp.float64)
+
+        def hubble_flow(pos):
+            return H * (pos - centre_vec[None, :])
+
+        sim = NBodySampler(
+            masses=masses,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=positions,
+            initial_velocities=velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
+            spatial_dimensions=2,
+            external_acceleration=hubble_flow,
+        )
+        positions_rec, velocities_rec = _record_at_times(
+            sim, self.dt, duration, measurement_times
+        )
+
+        return {
+            "measurement_times": measurement_times,
+            "positions": [
+                self._noisy_positions(p - centre).tolist() for p in positions_rec
+            ],
+            "velocities": [v.tolist() for v in velocities_rec],
+            "particle_masses": masses.tolist(),
+            "background_initial_positions": self._bg_positions_rel.tolist(),
+            "background_initial_velocities": self._bg_velocities.tolist(),
         }
