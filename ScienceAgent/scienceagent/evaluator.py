@@ -1675,8 +1675,11 @@ def _maybe_fit(
 # ---------------------------------------------------------------
 # Explanation judge: scores the agent's prose description of the
 # physical system against the world's ground-truth optimal_explanation.
-# Uses a fixed strong LLM judge (default claude-opus-4-6) for
-# reproducibility across agent models.
+# Uses a fixed strong LLM judge (default
+# together/meta-llama/Llama-3.1-405B-Instruct-Turbo) for reproducibility
+# across agent models.  The default is intentionally chosen to be
+# disjoint from the models being benchmarked so that no agent grades its
+# own explanations — keeping the explanation metric a fair test.
 
 _JUDGE_SYSTEM_PROMPT = (
     "You are an expert physicist grading how well a student's prose description of a "
@@ -1728,7 +1731,11 @@ class ExplanationJudge:
     score in [0, 1].
     """
 
-    def __init__(self, judge_model: str = "claude-opus-4-6", max_tokens: int = 1024):
+    def __init__(
+        self,
+        judge_model: str = "together/meta-llama/Llama-3.1-405B-Instruct-Turbo",
+        max_tokens: int = 1024,
+    ):
         self.judge_model = judge_model
         self.max_tokens = max_tokens
 

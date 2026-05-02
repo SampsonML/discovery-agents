@@ -283,7 +283,11 @@ def main():
     print("=" * 60)
     print(f"Agent explanation: {agent.discovered_explanation or '(none submitted)'}")
     print()
-    judge = ExplanationJudge(judge_model="claude-opus-4-6")
+    # Judge default: a strong model from a different family/provider than
+    # any of the benchmarked agent models, so no agent grades its own
+    # explanations.  Override via ExplanationJudge(judge_model=...).
+    judge_model = "together/meta-llama/Llama-3.1-405B-Instruct-Turbo"
+    judge = ExplanationJudge(judge_model=judge_model)
     explanation_result = judge.score(
         agent_explanation=agent.discovered_explanation,
         optimal_explanation=optimal_explanation,
@@ -293,7 +297,7 @@ def main():
     results["explanation"] = {
         "agent_explanation": agent.discovered_explanation,
         "optimal_explanation": optimal_explanation,
-        "judge_model": "claude-opus-4-6",
+        "judge_model": judge_model,
         **explanation_result,
     }
 
