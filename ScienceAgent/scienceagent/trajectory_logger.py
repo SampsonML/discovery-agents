@@ -60,6 +60,7 @@ COLUMNS: tuple[str, ...] = (
     "ring_radius",
     "initial_tangential_velocity",
     "mass",
+    "charge",
 )
 
 
@@ -151,11 +152,12 @@ def _scalar_params(p1=None, p2=None, ring_radius=None, v_tang=None) -> dict:
     }
 
 
-def _row(time, particle_id, pos, vel, params, mass=None) -> dict:
+def _row(time, particle_id, pos, vel, params, mass=None, charge=None) -> dict:
     """Build a single CSV row dict.
 
-    `mass` is optional — None becomes an empty cell, matching how legacy
-    worlds (which don't track per-particle mass) leave the column blank.
+    `mass` and `charge` are optional — passing None leaves the column
+    blank, matching how legacy worlds that don't track these properties
+    leave them empty.
     """
     row = {
         "time": float(time),
@@ -168,6 +170,8 @@ def _row(time, particle_id, pos, vel, params, mass=None) -> dict:
     }
     if mass is not None:
         row["mass"] = float(mass)
+    if charge is not None:
+        row["charge"] = float(charge)
     return row
 
 
@@ -418,6 +422,81 @@ def _rows_ether(executor, exp_input, exp_output) -> list[dict]:
 _rows_hubble = _rows_ether
 
 
+def _rows_coulomb_easy(executor, exp_input, exp_output) -> list[dict]:
+    """2 particles: 0 = pinned source, 1 = mobile probe.
+
+    Mirrors ``_rows_two_particle`` (p1, p2 stored on every row) but also
+    fills the per-particle ``charge`` column with the *signed* charges the
+    executor used internally so the loader can reconstruct the dynamics.
+    """
+    p1 = float(exp_input["p1"])
+    p2 = float(exp_input["p2"])
+    pos2_init = list(exp_input["pos2"])
+    vel2_init = list(exp_input["velocity2"])
+    times = exp_output.get("measurement_times", [])
+    pos1 = exp_output.get("pos1", [])
+    pos2 = exp_output.get("pos2", [])
+    vel1 = exp_output.get("velocity1", [])
+    vel2 = exp_output.get("velocity2", [])
+    params = _scalar_params(p1=p1, p2=p2)
+
+    # Executor enforces opposite-sign charges to guarantee attraction.
+    charges = exp_output.get("particle_charges", [+abs(p1), -abs(p2)])
+
+    rows: list[dict] = []
+    rows.append(_row(0.0, 0, [0.0, 0.0], [0.0, 0.0], params, charge=charges[0]))
+    rows.append(_row(0.0, 1, pos2_init, vel2_init, params, charge=charges[1]))
+    for i, t in enumerate(times):
+        if i < len(pos1) and i < len(vel1):
+            rows.append(_row(t, 0, pos1[i], vel1[i], params, charge=charges[0]))
+        if i < len(pos2) and i < len(vel2):
+            rows.append(_row(t, 1, pos2[i], vel2[i], params, charge=charges[1]))
+    return rows
+
+
+def _rows_coulomb_hard(executor, exp_input, exp_output) -> list[dict]:
+    """10 particles, all mobile, signed per-particle charges from the agent."""
+    init_positions = np.asarray(exp_input["positions"], dtype=float)
+    init_velocities = np.asarray(exp_input["velocities"], dtype=float)
+    charges_in = np.asarray(exp_input["charges"], dtype=float)
+    times = exp_output.get("measurement_times", [])
+    positions = exp_output.get("positions", [])
+    velocities = exp_output.get("velocities", [])
+    params = _scalar_params()
+
+    n_total = getattr(executor, "N_PARTICLES", init_positions.shape[0])
+
+    rows: list[dict] = []
+    for pid in range(n_total):
+        rows.append(
+            _row(
+                0.0,
+                pid,
+                init_positions[pid],
+                init_velocities[pid],
+                params,
+                charge=float(charges_in[pid]),
+            )
+        )
+    for i, t in enumerate(times):
+        if i >= len(positions) or i >= len(velocities):
+            break
+        snap_p = positions[i]
+        snap_v = velocities[i]
+        for pid in range(min(n_total, len(snap_p), len(snap_v))):
+            rows.append(
+                _row(
+                    t,
+                    pid,
+                    snap_p[pid],
+                    snap_v[pid],
+                    params,
+                    charge=float(charges_in[pid]),
+                )
+            )
+    return rows
+
+
 _RowBuilders = {
     "gravity": _rows_two_particle,
     "yukawa": _rows_two_particle,
@@ -430,4 +509,6 @@ _RowBuilders = {
     "dark_matter": _rows_dark_matter,
     "ether": _rows_ether,
     "hubble": _rows_hubble,
+    "coulomb_easy": _rows_coulomb_easy,
+    "coulomb_hard": _rows_coulomb_hard,
 }

@@ -50,6 +50,27 @@ def screened_gravity_force(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0, lam: float
     return G * q_i * q_j / r_mag**2 * jnp.exp(-r_mag / lam)
 
 
+# ── Coulomb (electrostatic) — physics-standard sign convention ────────────
+
+# In real-world electrostatics (and in the codebase's pair convention where
+# F_mag > 0 along (r_j - r_i) is attractive), Coulomb's law is
+#     F = -k q_i q_j / r²,
+# i.e. opposite-sign charges attract (q_i q_j < 0 → F_mag > 0) and like-sign
+# charges repel (q_i q_j > 0 → F_mag < 0). This is the *opposite* sign from
+# ``gravity_force`` above, which models same-sign-attractive Newtonian
+# gravity (where "charges" are masses, always positive).
+
+
+def coulomb_force(r_mag, q_i, q_j, m_i, m_j, k: float = 1.0):
+    """Coulomb 1/r² force, ``F = -k q_i q_j / r²`` (opposite-sign attracts)."""
+    return -k * q_i * q_j / r_mag**2
+
+
+def coulomb_potential(r_mag, q_i, q_j, m_i, m_j, k: float = 1.0):
+    """Companion potential, ``V = k q_i q_j / r`` (F_mag = dV/dr)."""
+    return k * q_i * q_j / r_mag
+
+
 def running_coupling_force(r_mag, q_i, q_j, m_i, m_j, g0: float = 0.5, r0: float = 5.0):
     """Logarithmically running coupling ``g(r) = g0 / (1 + g0 ln(r/r0))``.
 

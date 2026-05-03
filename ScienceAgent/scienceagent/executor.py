@@ -36,6 +36,10 @@ from physchool.worlds.force_laws import (
     yukawa_2d_potential,
     riesz_2d_force,
     riesz_2d_potential,
+    gravity_force,
+    gravity_potential,
+    coulomb_force,
+    coulomb_potential,
 )
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -106,6 +110,30 @@ def _operator_to_pairwise(operators):
         )
         pot_law = lambda r, qi, qj, mi, mj: riesz_2d_potential(  # noqa: E731
             r, qi, qj, mi, mj, G=strength, alpha=alpha
+        )
+        return force_law, pot_law
+
+    if op_type == "coulomb_3d":
+        # 3D-Newtonian-style 1/r² Coulomb kernel: F = G q_i q_j / r².
+        # Has no FieldSampler twin (FieldSampler is 2D Poisson → 1/r in 2D),
+        # so worlds using this operator are nbody-only.
+        force_law = lambda r, qi, qj, mi, mj: gravity_force(  # noqa: E731
+            r, qi, qj, mi, mj, G=strength
+        )
+        pot_law = lambda r, qi, qj, mi, mj: gravity_potential(  # noqa: E731
+            r, qi, qj, mi, mj, G=strength
+        )
+        return force_law, pot_law
+
+    if op_type == "coulomb":
+        # Standard physics-convention Coulomb: F = -k q_i q_j / r²,
+        # so opposite-sign charges attract (q_i q_j < 0 → F_mag > 0).
+        # Used by the coulomb_easy / coulomb_hard worlds; nbody-only.
+        force_law = lambda r, qi, qj, mi, mj: coulomb_force(  # noqa: E731
+            r, qi, qj, mi, mj, k=strength
+        )
+        pot_law = lambda r, qi, qj, mi, mj: coulomb_potential(  # noqa: E731
+            r, qi, qj, mi, mj, k=strength
         )
         return force_law, pot_law
 
@@ -2030,4 +2058,222 @@ class NBodyHubbleExecutor(_NoisyExecutorMixin):
             "particle_masses": masses.tolist(),
             "background_initial_positions": self._bg_positions_rel.tolist(),
             "background_initial_velocities": self._bg_velocities.tolist(),
+        }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Coulomb worlds (nbody-only)
+#
+# Both worlds use the standard physics-convention Coulomb kernel
+#   F = -k q_i q_j / r²
+# (opposite-sign charges attract). They share the ``coulomb`` op type
+# registered in ``_operator_to_pairwise``.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class NBodyCoulombEasyExecutor(_NoisyExecutorMixin):
+    """2-particle attractive-Coulomb world.
+
+    Particle 0 is pinned at the origin and particle 1 is the mobile probe.
+    The agent submits ``p1, p2`` as charge magnitudes; internally the
+    executor enforces opposite signs (q_0 = +|p1|, q_1 = -|p2|) so the pair
+    is *always* attractive regardless of the input sign. The discoverable
+    law is therefore F ∝ |p1| |p2| / r² (attractive).
+
+    Experiment format mirrors ``NBodySimulationExecutor`` so the agent's
+    ``discovered_law`` keeps the standard 2-particle signature
+    ``(pos1, pos2, p1, p2, velocity2, duration)``.
+    """
+
+    def __init__(
+        self,
+        operators=None,
+        temporal_order=0,
+        grid_size=None,  # accepted+ignored for API parity
+        domain_size=20.0,
+        dt=0.005,
+        noise_std=0.0,
+        noise_seed=None,
+        integrator=_NBODY_INTEGRATOR_DEFAULT,
+        softening=_NBODY_SOFTENING_DEFAULT,
+    ):
+        self.operators = operators or [{"type": "coulomb", "params": {"strength": 1.0}}]
+        self.temporal_order = temporal_order
+        self.grid_size = grid_size
+        self.domain_size = float(domain_size)
+        self.dt = float(dt)
+        self.integrator = integrator
+        self.softening = float(softening)
+        self._init_noise(noise_std, noise_seed)
+        _check_nbody_supports(temporal_order)
+        self._force_law, self._potential_law = _operator_to_pairwise(self.operators)
+
+    def run(self, experiments: list[dict]) -> list[dict]:
+        return [self._run_one(exp) for exp in experiments]
+
+    def run_json(self, json_str: str) -> str:
+        return json.dumps(self.run(json.loads(json_str)), indent=2)
+
+    def _run_one(self, exp: dict) -> dict:
+        p1 = float(exp["p1"])
+        p2 = float(exp["p2"])
+        pos2 = list(exp["pos2"])
+        velocity2 = list(exp["velocity2"])
+        measurement_times = sorted(exp["measurement_times"])
+        duration = float(exp.get("duration", max(measurement_times)))
+        duration = max(duration, 5.0)
+
+        centre = self.domain_size / 2.0
+        init_positions = np.array(
+            [
+                [centre, centre],
+                [centre + pos2[0], centre + pos2[1]],
+            ],
+            dtype=np.float64,
+        )
+        init_velocities = np.array([[0.0, 0.0], velocity2], dtype=np.float64)
+
+        # Pin particle 0 with a huge inertia + zero force-coupling. Inertia
+        # of particle 1 is fixed at 1.0 (charges, not mass, modulate this
+        # world's dynamics in the agent's view).
+        masses = np.array([1e15, 1.0], dtype=np.float64)
+        # Enforce attraction: opposite-sign charges. The agent's |p1|, |p2|
+        # are the discoverable charge magnitudes; the hidden sign convention
+        # makes the pair always attractive.
+        source_charges = np.array([+abs(p1), -abs(p2)], dtype=np.float64)
+        force_charges = np.array([0.0, 1.0], dtype=np.float64)
+
+        sim = NBodySampler(
+            masses=masses,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=init_positions,
+            initial_velocities=init_velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
+            spatial_dimensions=2,
+        )
+
+        positions, velocities = _record_at_times(
+            sim, self.dt, duration, measurement_times
+        )
+
+        pos1 = self._noisy_positions(positions[:, 0, :] - centre)
+        pos2_arr = self._noisy_positions(positions[:, 1, :] - centre)
+        return {
+            "measurement_times": measurement_times,
+            "pos1": pos1.tolist(),
+            "pos2": pos2_arr.tolist(),
+            "velocity1": velocities[:, 0, :].tolist(),
+            "velocity2": velocities[:, 1, :].tolist(),
+            "particle_charges": source_charges.tolist(),
+        }
+
+
+class NBodyCoulombHardExecutor(_NoisyExecutorMixin):
+    """10-particle signed-Coulomb world.
+
+    All 10 particles are mobile. The agent supplies signed ``charges``
+    along with ``positions`` and ``velocities``. The Coulomb force uses the
+    standard physics convention, so opposite-sign pairs attract and
+    like-sign pairs repel — the agent must discover this from experiments.
+
+    Experiment format::
+
+        {
+            "charges":    [c0, c1, ..., c9],
+            "positions":  [[x, y], ...],   # 10 entries, relative to domain centre
+            "velocities": [[vx, vy], ...], # 10 entries
+            "measurement_times": [t1, t2, ...]
+        }
+    """
+
+    N_PARTICLES = 10
+
+    def __init__(
+        self,
+        operators=None,
+        temporal_order=0,
+        grid_size=None,
+        domain_size=30.0,
+        dt=0.005,
+        noise_std=0.0,
+        noise_seed=None,
+        integrator=_NBODY_INTEGRATOR_DEFAULT,
+        softening=_NBODY_SOFTENING_DEFAULT,
+    ):
+        self.operators = operators or [{"type": "coulomb", "params": {"strength": 1.0}}]
+        self.temporal_order = temporal_order
+        self.grid_size = grid_size
+        self.domain_size = float(domain_size)
+        self.dt = float(dt)
+        self.integrator = integrator
+        self.softening = float(softening)
+        self._init_noise(noise_std, noise_seed)
+        _check_nbody_supports(temporal_order)
+        self._force_law, self._potential_law = _operator_to_pairwise(self.operators)
+
+    def run(self, experiments: list[dict]) -> list[dict]:
+        return [self._run_one(exp) for exp in experiments]
+
+    def run_json(self, json_str: str) -> str:
+        return json.dumps(self.run(json.loads(json_str)), indent=2)
+
+    def _run_one(self, exp: dict) -> dict:
+        charges = np.array(exp["charges"], dtype=np.float64)
+        positions_rel = np.array(exp["positions"], dtype=np.float64)
+        velocities = np.array(exp["velocities"], dtype=np.float64)
+        measurement_times = sorted(exp["measurement_times"])
+        duration = float(exp.get("duration", max(measurement_times)))
+        duration = max(duration, 5.0)
+
+        assert charges.shape == (
+            self.N_PARTICLES,
+        ), f"Expected {self.N_PARTICLES} charges, got shape {charges.shape}"
+        assert positions_rel.shape == (
+            self.N_PARTICLES,
+            2,
+        ), f"Expected {self.N_PARTICLES} positions, got {positions_rel.shape}"
+        assert velocities.shape == (
+            self.N_PARTICLES,
+            2,
+        ), f"Expected {self.N_PARTICLES} velocities, got {velocities.shape}"
+
+        centre = self.domain_size / 2.0
+        positions = positions_rel + centre
+
+        # Unit inertia for every particle; charges drive everything.
+        masses = np.ones(self.N_PARTICLES, dtype=np.float64)
+        source_charges = charges
+        # Every particle responds to the field uniformly; the per-pair
+        # Coulomb force already carries the signed-charge structure.
+        force_charges = np.ones(self.N_PARTICLES, dtype=np.float64)
+
+        sim = NBodySampler(
+            masses=masses,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=positions,
+            initial_velocities=velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
+            spatial_dimensions=2,
+        )
+        positions_rec, velocities_rec = _record_at_times(
+            sim, self.dt, duration, measurement_times
+        )
+
+        return {
+            "measurement_times": measurement_times,
+            "positions": [
+                self._noisy_positions(p - centre).tolist() for p in positions_rec
+            ],
+            "velocities": [v.tolist() for v in velocities_rec],
+            "particle_charges": charges.tolist(),
         }

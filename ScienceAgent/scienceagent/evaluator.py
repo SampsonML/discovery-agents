@@ -1334,6 +1334,51 @@ def _three_species_loss(law: Callable, training: list) -> float:
     return total_sq / count
 
 
+def _coulomb_hard_loss(law: Callable, training: list) -> float:
+    """Mean-squared position error on coulomb_hard training trajectories.
+
+    The discovered law operates on all 10 mobile particles with signature
+    ``law(positions, velocities, charges, duration)``. Loss aggregates
+    squared distance across every particle, every measurement time.
+    Each training sample carries the per-particle ``init_charges`` packed
+    by ``mse_fitting._one_coulomb_hard_sample`` from the CSV charge column.
+    """
+    total_sq = 0.0
+    count = 0
+    for sample in training:
+        case = sample["input"]
+        out = sample["output"]
+        init_positions = case.get("init_positions")
+        init_velocities = case.get("init_velocities")
+        init_charges = case.get("init_charges")
+        times = out.get("measurement_times", case.get("measurement_times", []))
+        obs_positions = np.asarray(out.get("positions", []))
+        if init_positions is None or init_velocities is None or init_charges is None:
+            continue
+        if obs_positions.ndim != 3 or len(times) == 0:
+            continue
+        for j, t in enumerate(times):
+            try:
+                pred = np.asarray(
+                    law(
+                        positions=init_positions,
+                        velocities=init_velocities,
+                        charges=init_charges,
+                        duration=float(t),
+                    )
+                )
+            except Exception:
+                return float("inf")
+            if pred.shape != obs_positions[j].shape:
+                return float("inf")
+            diff = pred - obs_positions[j]
+            total_sq += float(np.sum(diff * diff))
+            count += diff.size // 2
+    if count == 0:
+        return float("inf")
+    return total_sq / count
+
+
 # Probe slice in the dark-matter agent-facing 25-particle output. Mirrors
 # DarkMatterEvaluator: scoring is restricted to the 5 probes whose initial
 # conditions the agent set, since the visible-particle initial velocities
