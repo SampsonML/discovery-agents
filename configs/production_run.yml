@@ -22,10 +22,10 @@ models:
   - claude-sonnet-4-6
   - claude-haiku-4-5
   - azure/gpt-5.4
+  - together/Qwen/Qwen3.5-397B-A17B
   - together/Qwen/Qwen3-235B-A22B-Instruct-2507-tput
   - together/deepseek-ai/DeepSeek-V3.1
   - together/deepseek-ai/DeepSeek-R1
-  - together/meta-llama/Llama-3.3-70B-Instruct-Turbo
   - together/openai/gpt-oss-120b
   - together/openai/gpt-oss-20b
   - together/moonshotai/Kimi-K2.5
@@ -56,6 +56,8 @@ worlds:
   - hubble
   - coulomb_easy 
   - coulumb_hard
+  - oscillator 
+  - extra_dimension
 
 # how many rng trials per run
 seeds: [0] # lindsay do [3, 4]
