@@ -1,0 +1,55 @@
+# ------------------------------------------------------------
+# Example YAML benchmark config for scripts/yml_benchmark.py.
+#
+# Run:    python scripts/yml_benchmark.py configs/example.yml
+# Output: results/yml_bench/<name>/{run.sh, config.yml, 
+# summary.txt, <model>/<world>_seed<s>.{json,txt,stdout.log}}
+#
+# Required fields: models, critic, max_rounds, worlds, seeds.
+# Optional:        name, critic_model.
+# ------------------------------------------------------------
+
+
+# ---------------
+# name of the run
+name: test_run
+
+# -----------------------------------------
+# models to test on (will run sequentially)
+# 10 total models
+models:
+  - together/Qwen/Qwen3.5-397B-A17B
+
+# ---------------
+# use the critic?
+critic: off   # 'on' or 'off'
+# critic model
+critic_model: claude-sonnet-4-6  
+
+# --------------------------
+# max experimentation rounds
+max_rounds: 3
+
+# ---------------------------------
+# noise level of observed particles 
+noise_std: 0.075
+
+# --------------------
+# which physics worlds
+worlds:
+  - gravity
+  - yukawa
+  - fractional
+  - dark_matter 
+  - three_species
+  - ether
+  - hubble
+  - coulomb_easy 
+  - coulumb_hard
+  - oscillator
+  - extra_dimensions
+
+# how many rng trials per run
+seeds: [0] # lindsay do [3, 4]
+
+
