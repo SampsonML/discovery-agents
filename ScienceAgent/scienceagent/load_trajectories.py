@@ -61,6 +61,8 @@ class ExperimentTrajectory:
     initial_velocities: (N, 2)      == velocities[0]
     masses:             (N,)        per-particle masses; NaN-filled for
                                     legacy worlds that don't track mass
+    charges:            (N,)        per-particle charges; NaN-filled for
+                                    worlds that don't track charge
     """
 
     run_id: str
@@ -73,6 +75,7 @@ class ExperimentTrajectory:
     initial_positions: np.ndarray
     initial_velocities: np.ndarray
     masses: np.ndarray
+    charges: np.ndarray
     params: dict = field(default_factory=dict)
 
     @property
@@ -195,10 +198,11 @@ def _build_experiment(
     # Track which (time, particle) cells we actually saw a row for, so we
     # can distinguish "row never written" from "row written with NaN".
     written = np.zeros((T, N), dtype=bool)
-    # Mass column is per-particle (constant across time) but may be empty
-    # for worlds that never wrote it. We collect per-particle entries and
-    # leave NaN where the column was blank.
+    # Mass / charge columns are per-particle (constant across time) but
+    # may be empty for worlds that never wrote them. We collect per-
+    # particle entries and leave NaN where the column was blank.
     masses = np.full((N,), np.nan, dtype=np.float64)
+    charges = np.full((N,), np.nan, dtype=np.float64)
 
     for r in rows:
         i = time_index[float(r["time"])]
@@ -209,6 +213,9 @@ def _build_experiment(
         m_raw = r.get("mass")
         if m_raw not in (None, "", "NaN", "nan"):
             masses[j] = float(m_raw)
+        q_raw = r.get("charge")
+        if q_raw not in (None, "", "NaN", "nan"):
+            charges[j] = float(q_raw)
 
     if not written.all():
         missing_idx = np.argwhere(~written)
@@ -254,6 +261,7 @@ def _build_experiment(
         initial_positions=positions[0].copy(),
         initial_velocities=velocities[0].copy(),
         masses=masses,
+        charges=charges,
         params=params,
     )
 
