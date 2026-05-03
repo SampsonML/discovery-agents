@@ -236,6 +236,49 @@ def aggregate(out_root: Path) -> Path:
     out_path = out_root / "summary.txt"
     out_path.write_text("\n".join(lines) + "\n")
     _make_plots(by_trial, out_root)
+    _write_per_model_summary(by_trial, out_root)
+    return out_path
+
+
+def _per_model_pooled(by_trial):
+    """Pool every trial equally; return {model: (errs, scores)} lists."""
+    pooled: dict[str, tuple[list[float], list[float]]] = {}
+    for (model, _world), values in by_trial.items():
+        errs, scores = pooled.setdefault(model, ([], []))
+        for e, s in values:
+            if isinstance(e, (int, float)) and math.isfinite(e):
+                errs.append(float(e))
+            if isinstance(s, (int, float)) and math.isfinite(s):
+                scores.append(float(s))
+    return pooled
+
+
+def _write_per_model_summary(by_trial, out_root: Path) -> Path:
+    pooled = _per_model_pooled(by_trial)
+    lines = []
+    lines.append(f"Per-model summary  ({out_root.name})")
+    lines.append("=" * 116)
+    header = (
+        f"{'model':<50} {'n_trials':>9} "
+        f"{'expl_score [95% CI]':>22} {'mean_pos_err [95% CI]':>22}"
+    )
+    lines.append(header)
+    lines.append("-" * 116)
+    for model in sorted(pooled):
+        errs, scores = pooled[model]
+        n = max(len(errs), len(scores))
+        lines.append(
+            f"{model:<50} {n:>9} "
+            f"{_fmt_mean_bootstrap(scores):>22} {_fmt_mean_bootstrap(errs):>22}"
+        )
+    lines.append("-" * 116)
+    lines.append("Pooled across all worlds and seeds (every trial counts equally).")
+    lines.append(
+        f"Format: mean [2.5%, 97.5%] from {_BOOTSTRAP_RESAMPLES} bootstrap resamples "
+        f"of the mean (seed={_BOOTSTRAP_SEED}). n=1 → no CI. 'n/a' = no successful runs."
+    )
+    out_path = out_root / "summary_per_model.txt"
+    out_path.write_text("\n".join(lines) + "\n")
     return out_path
 
 
@@ -287,6 +330,63 @@ def _make_plots(by_trial, out_root: Path) -> None:
     worlds = sorted({w for _, w in by_trial.keys()})
     _make_bar_plot(by_trial, models, worlds, out_root, plt)
     _make_strip_plot(by_trial, models, worlds, out_root, plt)
+    _make_per_model_plot(by_trial, models, out_root, plt)
+
+
+def _make_per_model_plot(by_trial, models, out_root, plt) -> None:
+    """One bar per model in two side-by-side panels: expl. score and MSE."""
+    pooled = _per_model_pooled(by_trial)
+    n_models = len(models)
+    if n_models == 0:
+        return
+    fig_w = max(8.0, 1.2 * n_models * 2)
+    fig, (ax_score, ax_err) = plt.subplots(1, 2, figsize=(fig_w, 5))
+    x = np.arange(n_models)
+    cmap = plt.get_cmap("tab10")
+    colors = [cmap(i % 10) for i in range(n_models)]
+
+    score_means, score_lo, score_hi = [], [], []
+    err_means, err_lo, err_hi = [], [], []
+    for model in models:
+        errs, scores = pooled.get(model, ([], []))
+        s = _bootstrap_ci(scores)
+        e = _bootstrap_ci(errs)
+        score_means.append(s[0] if s else np.nan)
+        score_lo.append(s[1] if s else 0.0)
+        score_hi.append(s[2] if s else 0.0)
+        err_means.append(e[0] if e else np.nan)
+        err_lo.append(e[1] if e else 0.0)
+        err_hi.append(e[2] if e else 0.0)
+
+    ax_score.bar(x, score_means, yerr=[score_lo, score_hi], color=colors, capsize=3)
+    ax_err.bar(x, err_means, yerr=[err_lo, err_hi], color=colors, capsize=3)
+
+    labels = [_short(m) for m in models]
+    for ax, title, ylabel in [
+        (
+            ax_score,
+            "Explanation score (pooled across worlds)",
+            "score [0, 1]",
+        ),
+        (
+            ax_err,
+            "Mean position error (pooled across worlds)",
+            "error",
+        ),
+    ]:
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=20, ha="right")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(axis="y", linestyle=":", alpha=0.4)
+    ax_score.set_ylim(0, 1.05)
+    ax_err.set_yscale("log")
+
+    fig.suptitle(f"Per-model rollup: {out_root.name}", y=1.02)
+    fig.tight_layout()
+    fig.savefig(out_root / "summary_per_model.png", dpi=150, bbox_inches="tight")
+    fig.savefig(out_root / "summary_per_model.pdf", bbox_inches="tight")
+    plt.close(fig)
 
 
 def _make_bar_plot(by_trial, models, worlds, out_root, plt) -> None:
@@ -295,9 +395,7 @@ def _make_bar_plot(by_trial, models, worlds, out_root, plt) -> None:
     # Stacked layout: explanation score on top, position error on bottom,
     # sharing one set of world tick labels across both panels.
     fig_w = max(8.0, 0.8 * n_worlds * max(1, n_models))
-    fig, (ax_score, ax_err) = plt.subplots(
-        2, 1, figsize=(fig_w, 9), sharex=True
-    )
+    fig, (ax_score, ax_err) = plt.subplots(2, 1, figsize=(fig_w, 9), sharex=True)
     width = 0.8 / max(1, n_models)
     x = np.arange(n_worlds)
     cmap = plt.get_cmap("tab10")
