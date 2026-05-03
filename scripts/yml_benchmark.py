@@ -150,7 +150,7 @@ for model in "${{MODELS[@]}}"; do
         --max-rounds "${{MAX_ROUNDS}}" \\
         --store_output "${{base}}" \\
         --quiet \\
-        "${{critic_flags[@]}}" \\
+        ${{critic_flags[@]+"${{critic_flags[@]}}"}} \\
         > "${{base}}.stdout.log" 2>&1
       rc=$?
       t_trial_end=$(date +%s)
