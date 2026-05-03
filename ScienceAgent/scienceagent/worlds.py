@@ -572,11 +572,11 @@ WORLDS = {
             "inter-particle distances may miss the most important features "
             "of the physics."
         ),
-        "executor_class": "KaluzaKleinExecutor",
+        "executor_class": "ExtraDimensionsExecutor",
         # Same {} kwargs as the other 2-particle worlds — operators and
         # temporal_order are accepted+ignored by the executor for API parity.
         "executor_kwargs": {},
-        # KaluzaKleinExecutor is nbody-only — the image-sum kernel has no
+        # ExtraDimensionsExecutor is nbody-only — the image-sum kernel has no
         # equivalent in the FFT FieldSampler operator set.
         "true_law": _TRUE_LAW_EXTRA_DIMENSIONS,
         "true_law_title": "True Kaluza-Klein extra-dimension force",
