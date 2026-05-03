@@ -292,8 +292,12 @@ def _make_plots(by_trial, out_root: Path) -> None:
 def _make_bar_plot(by_trial, models, worlds, out_root, plt) -> None:
     n_models = len(models)
     n_worlds = len(worlds)
-    fig_w = max(8.0, 1.3 * n_worlds * max(1, n_models))
-    fig, (ax_score, ax_err) = plt.subplots(1, 2, figsize=(fig_w, 5))
+    # Stacked layout: explanation score on top, position error on bottom,
+    # sharing one set of world tick labels across both panels.
+    fig_w = max(8.0, 0.8 * n_worlds * max(1, n_models))
+    fig, (ax_score, ax_err) = plt.subplots(
+        2, 1, figsize=(fig_w, 9), sharex=True
+    )
     width = 0.8 / max(1, n_models)
     x = np.arange(n_worlds)
     cmap = plt.get_cmap("tab10")
@@ -336,21 +340,22 @@ def _make_bar_plot(by_trial, models, worlds, out_root, plt) -> None:
         (ax_err, "Mean position error (lower = better)", "error"),
     ]:
         ax.set_xticks(x)
-        ax.set_xticklabels(worlds, rotation=20, ha="right")
         ax.set_ylabel(ylabel)
         ax.set_title(title)
         ax.grid(axis="y", linestyle=":", alpha=0.4)
+    # With sharex, only the bottom panel needs the world labels.
+    ax_err.set_xticklabels(worlds, rotation=20, ha="right")
     ax_score.set_ylim(0, 1.05)
     ax_err.set_yscale("log")
 
-    fig.suptitle(f"Benchmark: {out_root.name}", y=1.02)
+    fig.suptitle(f"Benchmark: {out_root.name}", y=1.00)
     handles, labels = ax_score.get_legend_handles_labels()
     fig.legend(
         handles,
         labels,
         loc="lower center",
         ncol=min(4, max(1, n_models)),
-        bbox_to_anchor=(0.5, -0.05),
+        bbox_to_anchor=(0.5, -0.02),
     )
     fig.tight_layout()
     fig.savefig(out_root / "summary.png", dpi=150, bbox_inches="tight")

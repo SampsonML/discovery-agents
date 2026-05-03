@@ -39,6 +39,7 @@ import numpy as np
 from scienceagent.evaluator import (
     _compile_fit_parameters,
     _compile_law,
+    _coulomb_hard_loss,
     _dark_matter_loss,
     _ether_loss,
     _fit_law_parameters,
@@ -79,6 +80,10 @@ _LOSS_FNS: dict[str, Callable] = {
     # masses argument, scoring on the probe slice 21:26), so the same
     # loss function applies.
     "hubble": _ether_loss,
+    # coulomb_easy uses the same 2-particle protocol as gravity/yukawa/...
+    # (law signature: pos1, pos2, p1, p2, velocity2, duration).
+    "coulomb_easy": _two_particle_loss,
+    "coulomb_hard": _coulomb_hard_loss,
 }
 
 
@@ -225,6 +230,8 @@ def _experiments_to_training(
         # from the CSV's t=0 row + observed positions at t > 0. Loss
         # functions decide which particles to score.
         return [_one_full_state_sample(e) for e in experiments]
+    if world == "coulomb_hard":
+        return [_one_coulomb_hard_sample(e) for e in experiments]
     return [_one_two_particle_sample(e) for e in experiments]
 
 
@@ -293,6 +300,37 @@ def _one_full_state_sample(exp: ExperimentTrajectory) -> dict:
         "input": {
             "init_positions": exp.initial_positions.tolist(),  # (N, 2)
             "init_velocities": exp.initial_velocities.tolist(),  # (N, 2)
+            "measurement_times": times_obs,
+        },
+        "output": {
+            "measurement_times": times_obs,
+            "positions": positions_obs,
+        },
+    }
+
+
+def _one_coulomb_hard_sample(exp: ExperimentTrajectory) -> dict:
+    """Pack a coulomb_hard ExperimentTrajectory into evaluator-loss format.
+
+    Same shape as ``_one_full_state_sample`` but additionally carries the
+    per-particle signed charges recorded in the CSV ``charge`` column —
+    the coulomb_hard ``discovered_law`` takes ``charges`` as a third
+    argument, and ``_coulomb_hard_loss`` reads them from
+    ``input["init_charges"]``.
+    """
+    times_obs = exp.times[1:].tolist()
+    positions_obs = exp.positions[1:].tolist()  # (T-1, 10, 2)
+    charges = exp.charges
+    if charges is None or np.isnan(charges).any():
+        # The row builder always writes the charge column for coulomb_hard,
+        # so a NaN here means a partially-populated CSV. Default to zeros
+        # so the fit doesn't crash, even though loss will be uninformative.
+        charges = np.zeros(exp.n_particles, dtype=float)
+    return {
+        "input": {
+            "init_positions": exp.initial_positions.tolist(),  # (10, 2)
+            "init_velocities": exp.initial_velocities.tolist(),  # (10, 2)
+            "init_charges": charges.tolist(),  # (10,)
             "measurement_times": times_obs,
         },
         "output": {

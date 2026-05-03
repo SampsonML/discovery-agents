@@ -18,6 +18,8 @@ from scienceagent.executor import (
     NBodyDarkMatterExecutor,
     NBodyEtherExecutor,
     NBodyHubbleExecutor,
+    NBodyCoulombEasyExecutor,
+    NBodyCoulombHardExecutor,
     NBodyOscillatorExecutor,
 )
 
@@ -119,11 +121,25 @@ _TRUE_LAW_WAVE = (
 )
 
 
+_TRUE_LAW_COULOMB_EASY = (
+    r"$\mathbf{F}_{12} = -k\,q_1 q_2\,\hat{\mathbf{r}}_{12} / r^2,\quad k = 1$" + "\n"
+    r"$q_0 = +|p_1|,\; q_1 = -|p_2|$ (signs hidden, always attractive)" + "\n"
+    r"$\text{Particle 0 pinned at origin; particle 1 mobile, inertia 1}$"
+)
+
+
+_TRUE_LAW_COULOMB_HARD = (
+    r"$\mathbf{F}_{ij} = -k\,q_i q_j\,\hat{\mathbf{r}}_{ij} / r^2,\quad k = 1$" + "\n"
+    r"$\text{10 mobile particles; charges } q_i \text{ signed and supplied by the agent}$"
+    + "\n"
+    r"$\text{Opposite-sign pairs attract, like-sign pairs repel; inertia 1 for all}$"
+)
+
+
 _TRUE_LAW_OSCILLATOR = (
     _GENERAL_FORM + "\n\n"
     r"$n = 0$" + "\n"
-    r"$L[\varphi] = G(t)\,\nabla^2\varphi,\quad G(t) = G_0\cos(\omega t + \phi)$"
-    + "\n"
+    r"$L[\varphi] = G(t)\,\nabla^2\varphi,\quad G(t) = G_0\cos(\omega t + \phi)$" + "\n"
     r"$G_0 = 5,\;\omega = \pi/2\;(T = 4),\;\phi = 0$" + "\n"
     r"$\mathbf{F}_2 = -\nabla\varphi\,/\,p_2$"
 )
@@ -324,6 +340,44 @@ _RUBRIC_HUBBLE = """\
  1–3 — Wrong operator family, or interprets the outward push as random
      noise, drag, or some pairwise repulsion between probes/orbiters
      despite the obvious radial-from-anchor pattern.
+   0 — Empty or irrelevant."""
+
+
+_RUBRIC_COULOMB_EASY = """\
+10 — Identifies a static central pairwise attractive force with 1/r²
+     (inverse-square) falloff; correctly identifies the role of p1 and p2
+     as charges (or charge magnitudes) entering the force as a product
+     (F ∝ p1 · p2 / r²); states that particle 1 is held fixed and that
+     particle 2's inertia is 1; estimates the coupling/strength constant
+     within roughly a factor of 2 of 1.
+ 7–9 — Identifies an attractive 1/r² central force, but is vague or wrong
+     about how p1 and p2 enter (e.g. claims one of them is inertia, or
+     that the force depends additively on them), or omits the strength
+     estimate.
+ 4–6 — Recognises static attraction but identifies a clearly wrong falloff
+     (1/r, exponential, constant), or proposes a 1/r² law without
+     identifying p1 and p2 as charges.
+ 1–3 — Wrong qualitative behaviour (repulsive, time-evolving, wave-like)
+     or no mention of distance scaling.
+   0 — Empty, irrelevant, or no physical content."""
+
+
+_RUBRIC_COULOMB_HARD = """\
+10 — Identifies a static pairwise central force with 1/r² falloff and a
+     coupling proportional to the product of two signed charges
+     (F ∝ q_i q_j / r²); explicitly notes the sign convention — opposite
+     signs attract, like signs repel; states that all particles are
+     mobile, share unit inertia, and that the agent-supplied ``charges``
+     array sets the per-particle q_i; estimates the strength constant
+     within roughly a factor of 2 of 1.
+ 7–9 — Identifies the 1/r² signed-charge structure but flips the
+     attract/repel sign convention, treats charges as unsigned, or muddles
+     which agent input controls which particle.
+ 4–6 — Recognises pairwise 1/r² forces but treats the system as
+     uniformly attractive (Newtonian-gravity style) and misses the signed
+     structure, or proposes a clearly wrong falloff.
+ 1–3 — Wrong operator family (time-evolving, wave-like) or proposes
+     non-pairwise dynamics inconsistent with N-body Coulomb.
    0 — Empty or irrelevant."""
 
 
@@ -791,6 +845,88 @@ WORLDS = {
             "</run_experiment>"
         ),
     },
+    "coulomb_easy": {
+        "description": "2-particle attractive Coulomb world (1/r², N-body only).",
+        "mission": (
+            "Two particles interact in a 2D universe through a central "
+            "force that is always attractive. Particle 1 is held fixed at "
+            "the origin and particle 2 is the mobile probe. The strength "
+            "of the interaction depends on two scalar 'charges' p1 and p2 "
+            "(both supplied by you). Discover the law of motion governing "
+            "particle 2."
+        ),
+        "executor_class": "CoulombEasyExecutor",
+        "executor_kwargs": {},
+        "true_law": _TRUE_LAW_COULOMB_EASY,
+        "true_law_title": "True Coulomb (attractive)",
+        "optimal_explanation": (
+            "Two particles interact through a central, attractive 1/r² force, "
+            "F = k · p1 · p2 / r². Particle 1 is pinned at the origin and "
+            "particle 2 (inertia 1) is accelerated along the line of separation "
+            "with magnitude proportional to the product of the two charges. "
+            "Underneath, the world uses standard Coulomb's law with hidden "
+            "opposite signs (q_0 = +|p1|, q_1 = -|p2|), so attraction is "
+            "guaranteed regardless of the input signs."
+        ),
+        "explanation_rubric": _RUBRIC_COULOMB_EASY,
+        "law_stub": (
+            "def discovered_law(pos1, pos2, p1, p2, velocity2, duration):\n"
+            "    # pos1: [x, y] position of fixed particle 1 (always [0, 0])\n"
+            "    # pos2: [x, y] initial position of particle 2\n"
+            "    # p1, p2: scalar charges\n"
+            "    # velocity2: [vx, vy] initial velocity of particle 2\n"
+            "    # duration: float, simulate from t=0 to t=duration\n"
+            "    # return: (final_pos2, final_vel2)\n"
+            "    return final_pos2, final_vel2\n"
+        ),
+        "experiment_format": (
+            '<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
+            '"velocity2": [0.0, 0.5], "measurement_times": [1.0, 2.0, 3.0, 4.0, 5.0]}]'
+            "</run_experiment>"
+        ),
+    },
+    "coulomb_hard": {
+        "description": "10-particle signed-charge Coulomb world (N-body only).",
+        "mission": (
+            "You are observing a system of 10 particles in a 2D universe. "
+            "Each particle carries a scalar 'charge' that you set; charges "
+            "may be positive or negative. All 10 particles are mobile and "
+            "interact through a central pairwise force. Your goal is to "
+            "discover the law of motion governing every particle, including "
+            "how the per-particle charges combine to set the force between "
+            "any pair."
+        ),
+        "executor_class": "CoulombHardExecutor",
+        "executor_kwargs": {},
+        "true_law": _TRUE_LAW_COULOMB_HARD,
+        "true_law_title": "True Coulomb (signed)",
+        "optimal_explanation": (
+            "Ten mobile particles interact through standard Coulomb's law: each "
+            "pair (i, j) experiences a central 1/r² force with magnitude k · q_i · q_j "
+            "/ r² and the sign convention that opposite-sign charges attract while "
+            "like-sign charges repel. All particles share unit inertia, so the "
+            "acceleration of particle i is the sum of pairwise Coulomb forces from "
+            "every other particle. The agent-supplied 'charges' array provides "
+            "the signed q_i directly."
+        ),
+        "explanation_rubric": _RUBRIC_COULOMB_HARD,
+        "law_stub": (
+            "def discovered_law(positions, velocities, charges, duration):\n"
+            "    # positions: list of 10 [x, y] coords relative to centre\n"
+            "    # velocities: list of 10 [vx, vy]\n"
+            "    # charges: list of 10 signed scalar charges\n"
+            "    # duration: float, simulate from t=0 to t=duration\n"
+            "    # return: list of 10 [x, y] final positions\n"
+            "    return final_positions\n"
+        ),
+        "experiment_format": (
+            '<run_experiment>[{"charges": [1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0], '
+            '"positions": [[3,0],[-3,0],[0,3],[0,-3],[5,5],[-5,5],[5,-5],[-5,-5],[2,0],[0,2]], '
+            '"velocities": [[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]], '
+            '"measurement_times": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]}]'
+            "</run_experiment>"
+        ),
+    },
 }
 
 
@@ -805,6 +941,8 @@ _NBODY_EXECUTOR_CLASSES = {
     "DarkMatterExecutor": NBodyDarkMatterExecutor,
     "EtherExecutor": NBodyEtherExecutor,
     "HubbleExecutor": NBodyHubbleExecutor,
+    "CoulombEasyExecutor": NBodyCoulombEasyExecutor,
+    "CoulombHardExecutor": NBodyCoulombHardExecutor,
     # OscillatorExecutor is nbody-only: the time-modulated coupling
     # G(t)·F_static(r) is implemented via the NBody integrator's
     # ``force_modulation`` hook, and has no FieldSampler equivalent.
@@ -817,9 +955,13 @@ _FIELD_EXECUTOR_CLASSES = {
     "SpeciesExecutor": SpeciesExecutor,
     "ThreeSpeciesExecutor": ThreeSpeciesExecutor,
     "DarkMatterExecutor": DarkMatterExecutor,
-    # NOTE: EtherExecutor, HubbleExecutor, and OscillatorExecutor are
-    # nbody-only — their body-force / time-modulation terms have no
-    # equivalent in the FFT FieldSampler operator set.
+    # NOTE: EtherExecutor, HubbleExecutor, OscillatorExecutor,
+    # CoulombEasyExecutor, and CoulombHardExecutor are nbody-only. The
+    # ether/hubble worlds have body-force terms with no FFT equivalent;
+    # the oscillator world's time-modulated coupling is implemented via
+    # the NBody integrator's ``force_modulation`` hook; the Coulomb worlds
+    # use a 3D-style 1/r² kernel, which the 2D-Poisson FieldSampler cannot
+    # produce.
 }
 
 
