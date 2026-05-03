@@ -503,6 +503,12 @@ _RowBuilders = {
     "fractional": _rows_two_particle,
     "diffusion": _rows_two_particle,
     "wave": _rows_two_particle,
+    # ``oscillator`` shares the 2-particle (p1, p2, pos2, velocity2,
+    # measurement_times) protocol; the trajectory log doesn't currently
+    # carry the optional ``start_time``, but the per-time particle rows
+    # are correct because the executor returns the standard pos1/pos2
+    # arrays measured at the requested local times.
+    "oscillator": _rows_two_particle,
     "circle": _rows_circle,
     "species": _rows_species,
     "three_species": _rows_three_species,

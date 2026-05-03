@@ -64,6 +64,7 @@ the N-body trajectories.
 | **dark_matter** | $n=0$ | Laplacian, hidden 10-particle dark halo | Existence and strength of unobserved sources | nbody · field |
 | **ether** | $n=0$ | Laplacian + uniform body-force $\alpha\hat{\mathbf{y}}$ | Central law + a global preferred-direction drift | nbody only |
 | **hubble** | $n=0$ | Laplacian + radial Hubble flow $H\,\mathbf{r}$ | Central law + a position-dependent outward push | nbody only |
+| **oscillator** | $n=0$ | Laplacian with time-modulated coupling $G(t)\,\nabla^2\varphi,\; G(t) = G_0\cos(\omega t + \varphi)$ | Sinusoidally varying coupling that periodically reverses sign (same configuration attracts at one phase and repels a quarter-period later); recover period $T$, amplitude $G_0$, phase $\varphi$ | nbody only |
 
 ## Getting Started
 

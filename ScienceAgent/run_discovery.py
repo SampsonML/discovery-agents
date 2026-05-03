@@ -282,6 +282,7 @@ def main():
         "fractional",
         "diffusion",
         "wave",
+        "oscillator",
         "circle",
         "ether",
         "hubble",
