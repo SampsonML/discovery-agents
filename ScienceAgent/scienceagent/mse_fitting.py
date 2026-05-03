@@ -72,6 +72,7 @@ _LOSS_FNS: dict[str, Callable] = {
     # physics is time-varying.  The agent typically declares period /
     # amplitude / phase as fittable parameters.
     "oscillator": _two_particle_loss,
+    "extra_dimensions": _two_particle_loss,
     "circle": _circle_loss,
     "three_species": _three_species_loss,
     "dark_matter": _dark_matter_loss,

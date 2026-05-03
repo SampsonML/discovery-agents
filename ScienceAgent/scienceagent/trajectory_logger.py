@@ -176,7 +176,7 @@ def _row(time, particle_id, pos, vel, params, mass=None, charge=None) -> dict:
 
 
 def _rows_two_particle(executor, exp_input, exp_output) -> list[dict]:
-    """gravity / yukawa / fractional / diffusion / wave."""
+    """gravity / yukawa / fractional / diffusion / wave / oscillator / extra_dimensions."""
     p1 = float(exp_input["p1"])
     p2 = float(exp_input["p2"])
     pos2_init = list(exp_input["pos2"])
@@ -517,4 +517,5 @@ _RowBuilders = {
     "hubble": _rows_hubble,
     "coulomb_easy": _rows_coulomb_easy,
     "coulomb_hard": _rows_coulomb_hard,
+    "extra_dimensions": _rows_two_particle,
 }
