@@ -2031,3 +2031,167 @@ class NBodyHubbleExecutor(_NoisyExecutorMixin):
             "background_initial_positions": self._bg_positions_rel.tolist(),
             "background_initial_velocities": self._bg_velocities.tolist(),
         }
+
+
+class NBodyOscillatorExecutor(_NoisyExecutorMixin):
+    """
+    Direct-N-body 2-particle world with a *time-modulated* 2D Poisson force.
+
+    Hidden physics
+    --------------
+    Particle 1 sits fixed at the origin with source coupling p1.  Particle 2
+    has inertia p2 and feels the standard 2D-Poisson 1/r force, but the
+    overall coupling is multiplied by a sinusoid in absolute time:
+
+        F_2(r, t) = G(t) · p1 · 1/(2π r) · (-r̂)
+        G(t)      = G_0 · cos(ω · t + φ)
+
+    Default hidden parameters:
+        G_0 = 5.0      amplitude (large enough that the modulation, not a
+                       second-order correction to gravity, dominates the
+                       trajectory)
+        ω   = π/2      angular frequency  →  period T = 4
+        φ   = 0        phase  →  G(0) = G_0 (peak attraction at t = 0)
+
+    Because G(t) changes sign during each cycle, identical initial
+    conditions evolve into qualitatively different trajectories depending
+    on *when* the experiment is performed: the same particle pair attracts
+    during half the period and repels during the other half.
+
+    Architecturally this is a thin wrapper around ``NBodySampler``: we
+    plug ``poisson_2d_force`` in as the static spatial kernel and drive
+    its global amplitude with the sampler's ``force_modulation`` hook.
+    The integrator (default Yoshida-4) sees a fully time-aware
+    acceleration ``G(t) · F_static(r)`` and stays Nth-order accurate on
+    smooth ``G(t)``.
+
+    Experiment format extends the standard 2-particle protocol with an
+    optional ``start_time`` that sets the absolute clock t at the start
+    of the experiment, letting the agent probe different phases of G(t)
+    directly without changing the initial conditions::
+
+        {
+          "p1":  float,
+          "p2":  float,
+          "pos2":      [x, y],
+          "velocity2": [vx, vy],
+          "measurement_times": [float, ...],
+          "start_time": float,  # OPTIONAL, defaults to 0
+        }
+
+    Returns the same shape as :class:`NBodySimulationExecutor`.
+    """
+
+    G_0 = 5.0
+    OMEGA = float(np.pi / 2.0)
+    PHI = 0.0
+
+    def __init__(
+        self,
+        operators=None,           # accepted+ignored for API parity
+        temporal_order=0,         # accepted+ignored for API parity
+        grid_size=None,           # accepted+ignored for API parity
+        domain_size=20.0,
+        dt=0.005,
+        noise_std=0.0,
+        noise_seed=None,
+        integrator=_NBODY_INTEGRATOR_DEFAULT,
+        softening=_NBODY_SOFTENING_DEFAULT,
+    ):
+        self.operators = operators
+        self.temporal_order = temporal_order
+        self.grid_size = grid_size
+        self.domain_size = float(domain_size)
+        self.dt = float(dt)
+        self.integrator = integrator
+        self.softening = float(softening)
+        self._init_noise(noise_std, noise_seed)
+
+        # Static spatial kernel: standard 2D Poisson with unit prefactor.
+        # The time modulation is applied at the integrator level, so this
+        # only encodes the geometric 1/r structure.
+        self._force_law = lambda r, qi, qj, mi, mj: poisson_2d_force(
+            r, qi, qj, mi, mj, G=1.0
+        )
+        self._potential_law = lambda r, qi, qj, mi, mj: poisson_2d_potential(
+            r, qi, qj, mi, mj, G=1.0
+        )
+
+    @classmethod
+    def coupling(cls, t):
+        """Time-modulated coupling G(t) = G_0 · cos(ω t + φ).
+
+        Class method so notebooks / tests can plot the ground truth without
+        instantiating an executor.  Accepts scalar or array-like ``t``.
+        """
+        return cls.G_0 * np.cos(cls.OMEGA * np.asarray(t, dtype=np.float64) + cls.PHI)
+
+    def run(self, experiments: list[dict]) -> list[dict]:
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, json_str: str) -> str:
+        return json.dumps(self.run(json.loads(json_str)), indent=2)
+
+    def _run_one(self, exp: dict) -> dict:
+        p1 = float(exp["p1"])
+        p2 = float(exp["p2"])
+        pos2 = list(exp["pos2"])
+        velocity2 = list(exp["velocity2"])
+        measurement_times = sorted(exp["measurement_times"])
+        duration = float(exp.get("duration", max(measurement_times)))
+        duration = max(duration, 5.0)
+        t0 = float(exp.get("start_time", 0.0))
+
+        centre = self.domain_size / 2.0
+        init_positions = np.array(
+            [
+                [centre, centre],
+                [centre + pos2[0], centre + pos2[1]],
+            ],
+            dtype=np.float64,
+        )
+        init_velocities = np.array([[0.0, 0.0], velocity2], dtype=np.float64)
+
+        masses = np.array([1e15, p2], dtype=np.float64)
+        source_charges = np.array([p1, 1.0], dtype=np.float64)
+        force_charges = np.array([0.0, 1.0], dtype=np.float64)
+
+        # JAX-traceable closure for the time-dependent global coupling.
+        # Closing over plain Python floats is fine — JAX folds them into
+        # the trace as constants.
+        G_0 = self.G_0
+        omega = self.OMEGA
+        phi = self.PHI
+
+        def coupling_fn(t):
+            return G_0 * jnp.cos(omega * t + phi)
+
+        sim = NBodySampler(
+            masses=masses,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=init_positions,
+            initial_velocities=init_velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
+            spatial_dimensions=2,
+            force_modulation=coupling_fn,
+            initial_time=t0,
+        )
+
+        positions, velocities = _record_at_times(
+            sim, self.dt, duration, measurement_times
+        )
+
+        pos1 = self._noisy_positions(positions[:, 0, :] - centre)
+        pos2_arr = self._noisy_positions(positions[:, 1, :] - centre)
+        return {
+            "measurement_times": measurement_times,
+            "pos1": pos1.tolist(),
+            "pos2": pos2_arr.tolist(),
+            "velocity1": velocities[:, 0, :].tolist(),
+            "velocity2": velocities[:, 1, :].tolist(),
+        }

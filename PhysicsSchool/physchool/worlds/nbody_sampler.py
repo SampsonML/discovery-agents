@@ -42,6 +42,7 @@ benchmark the simulator live in ``physchool.worlds.analytic_orbits``.
 
 from __future__ import annotations
 
+import inspect
 from typing import Callable, Optional
 
 import jax
@@ -50,6 +51,42 @@ from jax.experimental.ode import odeint
 
 # Run all sims in float64
 jax.config.update("jax_enable_x64", True)
+
+
+def _wrap_for_time(fn: Callable, role: str) -> Callable:
+    """Return a JAX-traceable callable with signature ``(pos, t)``.
+
+    Accepts the legacy single-argument convention ``fn(pos)`` and wraps it so
+    the integrator can always pass time uniformly.  Arity is detected via
+    :func:`inspect.signature`; if that fails (e.g. an unusual decorator), the
+    function is assumed to follow the new ``(pos, t)`` convention.
+
+    ``role`` is used only in the error message when the function takes more
+    than two positional arguments.
+    """
+    try:
+        n_params = len(
+            [
+                p
+                for p in inspect.signature(fn).parameters.values()
+                if p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+        )
+    except (ValueError, TypeError):
+        n_params = 2
+
+    if n_params == 1:
+        return lambda pos, t, _f=fn: _f(pos)
+    if n_params == 2:
+        return fn
+    raise ValueError(
+        f"{role} callable must accept either (positions,) or "
+        f"(positions, time); got {n_params}-arg signature."
+    )
 
 
 # ── Pairwise force / energy computation ────────────────────────────────────
@@ -180,24 +217,31 @@ _YOSHIDA6_C, _YOSHIDA6_D = _yoshida6_coefs()
 def _make_step(integrator: str, accel_fn: Callable, dt: float):
     """Return ``step(state) -> new_state`` JIT-compiled for the given integrator.
 
-    State is the tuple ``(positions, velocities)``.
+    State is the tuple ``(positions, velocities, time)``; ``time`` is a
+    JAX-traced scalar so that time-dependent ``accel_fn`` evaluations stay
+    inside the JIT trace.  ``accel_fn`` has signature ``(pos, t) -> a``.
+
+    Higher-order symplectic integrators (Yoshida) advance time in fractional
+    sub-steps consistent with their drift coefficients, so a time-modulated
+    coupling stays Nth-order accurate on smooth ``G(t)``.
     """
 
     def euler_step(state):
-        pos, vel = state
-        a = accel_fn(pos)
+        pos, vel, t = state
+        a = accel_fn(pos, t)
         vel = vel + dt * a  # kick
         pos = pos + dt * vel  # drift
-        return (pos, vel)
+        return (pos, vel, t + dt)
 
     def leapfrog_step(state):
-        pos, vel = state
-        a = accel_fn(pos)
+        pos, vel, t = state
+        a = accel_fn(pos, t)
         vel_half = vel + 0.5 * dt * a
         pos = pos + dt * vel_half
-        a_new = accel_fn(pos)
+        t_new = t + dt
+        a_new = accel_fn(pos, t_new)
         vel = vel_half + 0.5 * dt * a_new
-        return (pos, vel)
+        return (pos, vel, t_new)
 
     def make_yoshida(c_seq, d_seq):
         c_arr = jnp.asarray(c_seq)
@@ -207,25 +251,30 @@ def _make_step(integrator: str, accel_fn: Callable, dt: float):
         assert n_drift == n_kick + 1
 
         def yoshida_step(state):
-            pos, vel = state
+            pos, vel, t = state
             for i in range(n_kick):
                 pos = pos + c_arr[i] * dt * vel
-                vel = vel + d_arr[i] * dt * accel_fn(pos)
+                t = t + c_arr[i] * dt
+                vel = vel + d_arr[i] * dt * accel_fn(pos, t)
             pos = pos + c_arr[-1] * dt * vel
-            return (pos, vel)
+            t = t + c_arr[-1] * dt
+            return (pos, vel, t)
 
         return yoshida_step
 
     def rk4_step(state):
-        pos, vel = state
-        # ODE: dpos/dt = vel ; dvel/dt = a(pos)
-        k1_p, k1_v = vel, accel_fn(pos)
-        k2_p, k2_v = (vel + 0.5 * dt * k1_v, accel_fn(pos + 0.5 * dt * k1_p))
-        k3_p, k3_v = (vel + 0.5 * dt * k2_v, accel_fn(pos + 0.5 * dt * k2_p))
-        k4_p, k4_v = (vel + dt * k3_v, accel_fn(pos + dt * k3_p))
+        pos, vel, t = state
+        # ODE: dpos/dt = vel ; dvel/dt = a(pos, t)
+        k1_p, k1_v = vel, accel_fn(pos, t)
+        k2_p = vel + 0.5 * dt * k1_v
+        k2_v = accel_fn(pos + 0.5 * dt * k1_p, t + 0.5 * dt)
+        k3_p = vel + 0.5 * dt * k2_v
+        k3_v = accel_fn(pos + 0.5 * dt * k2_p, t + 0.5 * dt)
+        k4_p = vel + dt * k3_v
+        k4_v = accel_fn(pos + dt * k3_p, t + dt)
         pos = pos + (dt / 6.0) * (k1_p + 2 * k2_p + 2 * k3_p + k4_p)
         vel = vel + (dt / 6.0) * (k1_v + 2 * k2_v + 2 * k3_v + k4_v)
-        return (pos, vel)
+        return (pos, vel, t + dt)
 
     if integrator == "euler":
         step_fn = euler_step
@@ -276,6 +325,8 @@ class NBodySampler:
         softening: float = 0.0,
         spatial_dimensions: Optional[int] = None,
         external_acceleration=None,
+        force_modulation: Optional[Callable] = None,
+        initial_time: float = 0.0,
     ):
         if integrator not in self.SUPPORTED_INTEGRATORS:
             raise ValueError(
@@ -340,7 +391,7 @@ class NBodySampler:
             if spatial_dimensions is not None
             else self.positions.shape[1]
         )
-        self.time = 0.0
+        self.time = float(initial_time)
 
         # JIT-compiled helpers closed over the user force/potential laws.
         self._accel_fn = jax.jit(make_acceleration_fn(force_law, softening))
@@ -350,19 +401,23 @@ class NBodySampler:
             self._potential_fn = None
 
         # Optional external acceleration applied to every particle each step.
-        # Two shapes are accepted:
+        # Three shapes are accepted:
         #   * a constant ``(D,)`` array — uniform body-force (e.g. the ether
         #     world's northward push), broadcast to every particle.
-        #   * a callable ``f(positions) -> (N, D)`` — position-dependent body
-        #     force (e.g. a Hubble flow ``H · r``, a vortex, etc.). Must be
-        #     JAX-traceable so it can be jitted alongside the integrator.
-        # ``None`` means no external term.
+        #   * a callable ``f(positions) -> (N, D)`` — position-dependent
+        #     time-independent body force (e.g. a Hubble flow ``H · r``).
+        #   * a callable ``f(positions, time) -> (N, D)`` — fully time- and
+        #     position-dependent body force.
+        # ``None`` means no external term.  Callables must be JAX-traceable
+        # so they JIT alongside the integrator.
         self._external_accel_fn: Optional[Callable] = None
         self.external_acceleration = None
         if external_acceleration is not None:
             if callable(external_acceleration):
                 self.external_acceleration = external_acceleration
-                self._external_accel_fn = external_acceleration
+                self._external_accel_fn = _wrap_for_time(
+                    external_acceleration, role="external_acceleration"
+                )
             else:
                 ext = jnp.asarray(external_acceleration, dtype=jnp.float64)
                 if ext.shape != (self.spatial_dimensions,):
@@ -371,26 +426,40 @@ class NBodySampler:
                         f"({self.spatial_dimensions},), got {ext.shape}"
                     )
                 self.external_acceleration = ext
-                # Wrap as a callable so the rest of the class only deals with
-                # one form (broadcast the constant vector to every particle).
-                self._external_accel_fn = lambda pos, _ext=ext: jnp.broadcast_to(
+                # Wrap as a (pos, t) -> (N, D) callable for uniform handling.
+                self._external_accel_fn = lambda pos, _t, _ext=ext: jnp.broadcast_to(
                     _ext[None, :], pos.shape
                 )
 
-        # Step functions assume charges and masses are fixed, so close over them.
+        # Optional multiplicative time-modulation on the pairwise force law.
+        # ``force_modulation(t) -> scalar`` (or any shape broadcastable
+        # against the (N, D) acceleration tensor).  Used by worlds whose
+        # underlying coupling oscillates / drifts in time without changing
+        # its spatial form (e.g. ``G(t)·F_static(r)``).  Must be JAX-
+        # traceable.  ``None`` → constant coupling.
+        self.force_modulation = force_modulation
+        self._force_modulation_fn = force_modulation
+
+        # Step functions assume charges and masses are fixed, so close over
+        # them.  The compiled accel takes ``(pos, t)`` even when neither
+        # the modulation nor the external term actually depend on ``t`` —
+        # this keeps the integrator state shape uniform across worlds and
+        # lets JAX trace away the no-op time argument.
         src_fixed = self.source_charges
         frc_fixed = self.force_charges
         masses_fixed = self.masses
         ext_fn = self._external_accel_fn
-        if ext_fn is None:
-            accel_pos_only = jax.jit(
-                lambda pos: self._accel_fn(pos, src_fixed, frc_fixed, masses_fixed)
-            )
-        else:
-            accel_pos_only = jax.jit(
-                lambda pos: self._accel_fn(pos, src_fixed, frc_fixed, masses_fixed)
-                + ext_fn(pos)
-            )
+        mod_fn = self._force_modulation_fn
+
+        def _accel_pos_t(pos, t):
+            a = self._accel_fn(pos, src_fixed, frc_fixed, masses_fixed)
+            if mod_fn is not None:
+                a = mod_fn(t) * a
+            if ext_fn is not None:
+                a = a + ext_fn(pos, t)
+            return a
+
+        accel_pos_only = jax.jit(_accel_pos_t)
 
         if integrator != "dopri5":
             self._step_fn = _make_step(integrator, accel_pos_only, self.dt)
@@ -445,10 +514,13 @@ class NBodySampler:
                 "Single-step interface not available for adaptive 'dopri5'; "
                 "use ``run`` instead."
             )
-        new_pos, new_vel = self._step_fn((self.positions, self.velocities))
+        t_in = jnp.asarray(self.time, dtype=jnp.float64)
+        new_pos, new_vel, new_t = self._step_fn(
+            (self.positions, self.velocities, t_in)
+        )
         self.positions = new_pos
         self.velocities = new_vel
-        self.time += self.dt
+        self.time = float(new_t)
 
     def run(self, n_steps: int, record_every: int = 1, t_eval=None):
         """Advance the system and return recorded trajectory.
@@ -484,18 +556,20 @@ class NBodySampler:
             return state, state
 
         n_records = n_steps // record_every
-        state0 = (self.positions, self.velocities)
-        # Initial state is recorded explicitly so users always see t=0.
+        t0 = jnp.asarray(self.time, dtype=jnp.float64)
+        state0 = (self.positions, self.velocities, t0)
+        # Initial state is recorded explicitly so users always see t=t0.
         final_state, recorded = jax.lax.scan(chunk, state0, jnp.arange(n_records))
 
         positions = jnp.concatenate([self.positions[None], recorded[0]], axis=0)
         velocities = jnp.concatenate([self.velocities[None], recorded[1]], axis=0)
-        times = self.time + jnp.arange(n_records + 1) * (self.dt * record_every)
+        # ``recorded[2]`` is the post-chunk time at each scan step; prepend t0.
+        times = jnp.concatenate([t0[None], recorded[2]], axis=0)
 
         # Update internal state to the end of the run.
         self.positions = final_state[0]
         self.velocities = final_state[1]
-        self.time = float(times[-1])
+        self.time = float(final_state[2])
 
         return {
             "times": times,
@@ -520,14 +594,17 @@ class NBodySampler:
         frc = self.force_charges
         masses = self.masses
         ext_fn = self._external_accel_fn
+        mod_fn = self._force_modulation_fn
 
         @jax.jit
         def rhs(y, t):
             pos = y[: n * d].reshape((n, d))
             vel = y[n * d :].reshape((n, d))
             a = accel(pos, src, frc, masses)
+            if mod_fn is not None:
+                a = mod_fn(t) * a
             if ext_fn is not None:
-                a = a + ext_fn(pos)
+                a = a + ext_fn(pos, t)
             return jnp.concatenate([vel.reshape(-1), a.reshape(-1)])
 
         y0 = jnp.concatenate([self.positions.reshape(-1), self.velocities.reshape(-1)])
