@@ -88,6 +88,7 @@ _SAMPLERS: dict[str, Callable[[np.random.Generator], dict]] = {
     "fractional": sample_two_particle,
     "diffusion": sample_two_particle,
     "wave": sample_two_particle,
+    "oscillator": sample_two_particle,
     "dark_matter": sample_dark_matter,
     "three_species": sample_three_species,
     "species": sample_species,

@@ -65,6 +65,12 @@ _LOSS_FNS: dict[str, Callable] = {
     "fractional": _two_particle_loss,
     "diffusion": _two_particle_loss,
     "wave": _two_particle_loss,
+    # ``oscillator`` shares the 2-particle agent-facing law signature
+    # ``discovered_law(pos1, pos2, p1, p2, velocity2, duration, **params)``,
+    # so the same trajectory MSE loss applies even though the hidden
+    # physics is time-varying.  The agent typically declares period /
+    # amplitude / phase as fittable parameters.
+    "oscillator": _two_particle_loss,
     "circle": _circle_loss,
     "three_species": _three_species_loss,
     "dark_matter": _dark_matter_loss,
