@@ -36,6 +36,8 @@ from physchool.worlds.force_laws import (
     yukawa_2d_potential,
     riesz_2d_force,
     riesz_2d_potential,
+    extra_dimensions_2d_force,
+    extra_dimensions_2d_potential,
 )
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -2180,6 +2182,174 @@ class NBodyOscillatorExecutor(_NoisyExecutorMixin):
             spatial_dimensions=2,
             force_modulation=coupling_fn,
             initial_time=t0,
+        )
+
+        positions, velocities = _record_at_times(
+            sim, self.dt, duration, measurement_times
+        )
+
+        pos1 = self._noisy_positions(positions[:, 0, :] - centre)
+        pos2_arr = self._noisy_positions(positions[:, 1, :] - centre)
+        return {
+            "measurement_times": measurement_times,
+            "pos1": pos1.tolist(),
+            "pos2": pos2_arr.tolist(),
+            "velocity1": velocities[:, 0, :].tolist(),
+            "velocity2": velocities[:, 1, :].tolist(),
+        }
+
+
+class NBodyExtraDimensionsExecutor(_NoisyExecutorMixin):
+    """
+    Direct-N-body 2-particle world with a *Kaluza-Klein* extra-dimension force.
+
+    Hidden physics
+    --------------
+    The visible universe is 2D, but a single spatial dimension is
+    compactified on a circle of radius ``R_compact``.  Both source and
+    probe sit at the same point on the compact circle, so the source's
+    full 3D Newtonian potential is summed over the infinite tower of
+    image charges at ``y_n = n · L`` (``L = 2π R_compact``).  The in-plane
+    force is
+
+        F(r) = (G · L) / (4π) · p_1 · Σ_n  r / (r² + (n L)²)^(3/2)
+
+    with the same FieldSampler-style ``source_charges = [p1, 1]`` and
+    ``force_charges = [0, 1]`` used by :class:`NBodySimulationExecutor`.
+
+    Default hidden parameters:
+        G         = 1.0        coupling, calibrated so the long-range
+                               regime exactly matches the standard 2D
+                               ``gravity`` world (``F → p1 / (2π r)``).
+        R_compact = 0.5        compactification radius
+                               (so L = 2π R ≈ 3.14 — the crossover lives
+                               around r ≈ 1, well inside the typical
+                               inter-particle distances the agent uses).
+        n_images  = 20         truncation of the image sum.
+
+    Asymptotic behaviour:
+
+      * ``r ≫ R_compact``:  F → p1 / (2π r)            (2D Poisson — looks
+                                                       *identical* to the
+                                                       gravity world)
+      * ``r ≲ R_compact``:  F → G · L · p1 / (4π r²)   (3D Newtonian
+                                                       inverse-square)
+
+    Discovery story
+    ---------------
+    An agent that runs experiments at "default-looking" separations
+    (r ≈ 3–5) will see clean 2D-Poisson dynamics and is liable to
+    conclude the world is just :class:`gravity`.  The extra dimension
+    only reveals itself if they (a) probe r ≲ 1 — where the force grows
+    as 1/r² rather than 1/r — or (b) carefully fit the small
+    long-range-limited deviation across a wide range of r.  Designing
+    those experiments is the whole task.
+
+    Experiment format mirrors :class:`NBodySimulationExecutor`::
+
+        {
+          "p1":  float,
+          "p2":  float,
+          "pos2":      [x, y],
+          "velocity2": [vx, vy],
+          "measurement_times": [float, ...],
+        }
+
+    Returns the same shape as :class:`NBodySimulationExecutor`.
+    """
+
+    G = 1.0
+    R_COMPACT = 0.5
+    N_IMAGES = 20
+
+    def __init__(
+        self,
+        operators=None,           # accepted+ignored for API parity
+        temporal_order=0,         # accepted+ignored for API parity
+        grid_size=None,           # accepted+ignored for API parity
+        domain_size=20.0,
+        dt=0.005,
+        noise_std=0.0,
+        noise_seed=None,
+        integrator=_NBODY_INTEGRATOR_DEFAULT,
+        softening=_NBODY_SOFTENING_DEFAULT,
+    ):
+        self.operators = operators
+        self.temporal_order = temporal_order
+        self.grid_size = grid_size
+        self.domain_size = float(domain_size)
+        self.dt = float(dt)
+        self.integrator = integrator
+        self.softening = float(softening)
+        self._init_noise(noise_std, noise_seed)
+
+        G = self.G
+        R = self.R_COMPACT
+        N = self.N_IMAGES
+        self._force_law = lambda r, qi, qj, mi, mj: extra_dimensions_2d_force(
+            r, qi, qj, mi, mj, G=G, R_compact=R, n_images=N
+        )
+        self._potential_law = lambda r, qi, qj, mi, mj: extra_dimensions_2d_potential(
+            r, qi, qj, mi, mj, G=G, R_compact=R, n_images=N
+        )
+
+    @classmethod
+    def force_magnitude(cls, r, q_i=1.0, q_j=1.0):
+        """Numpy-only helper: pairwise KK force magnitude as a function of r.
+
+        Useful for plotting the ground-truth force law in notebooks /
+        tests without instantiating an executor.  Accepts scalar or
+        array-like ``r``.
+        """
+        L = 2.0 * np.pi * cls.R_COMPACT
+        n_arr = np.arange(-cls.N_IMAGES, cls.N_IMAGES + 1, dtype=np.float64)
+        y_n = n_arr * L
+        r_arr = np.asarray(r, dtype=np.float64)
+        denom = (r_arr[..., None] ** 2 + y_n**2) ** 1.5
+        F_geom = np.sum(r_arr[..., None] / denom, axis=-1)
+        return cls.G * L * q_i * q_j * F_geom / (4.0 * np.pi)
+
+    def run(self, experiments: list[dict]) -> list[dict]:
+        return [self._run_one(e) for e in experiments]
+
+    def run_json(self, json_str: str) -> str:
+        return json.dumps(self.run(json.loads(json_str)), indent=2)
+
+    def _run_one(self, exp: dict) -> dict:
+        p1 = float(exp["p1"])
+        p2 = float(exp["p2"])
+        pos2 = list(exp["pos2"])
+        velocity2 = list(exp["velocity2"])
+        measurement_times = sorted(exp["measurement_times"])
+        duration = float(exp.get("duration", max(measurement_times)))
+        duration = max(duration, 5.0)
+
+        centre = self.domain_size / 2.0
+        init_positions = np.array(
+            [
+                [centre, centre],
+                [centre + pos2[0], centre + pos2[1]],
+            ],
+            dtype=np.float64,
+        )
+        init_velocities = np.array([[0.0, 0.0], velocity2], dtype=np.float64)
+
+        masses = np.array([1e15, p2], dtype=np.float64)
+        source_charges = np.array([p1, 1.0], dtype=np.float64)
+        force_charges = np.array([0.0, 1.0], dtype=np.float64)
+
+        sim = NBodySampler(
+            masses=masses,
+            source_charges=source_charges,
+            force_charges=force_charges,
+            initial_positions=init_positions,
+            initial_velocities=init_velocities,
+            force_law=self._force_law,
+            potential_law=self._potential_law,
+            integrator=self.integrator,
+            dt=self.dt,
+            softening=self.softening,
+            spatial_dimensions=2,
         )
 
         positions, velocities = _record_at_times(
