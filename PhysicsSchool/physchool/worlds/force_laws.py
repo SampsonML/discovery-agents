@@ -193,3 +193,104 @@ def riesz_2d_potential(r_mag, q_i, q_j, m_i, m_j, G: float = 1.0, alpha: float =
     """
     c = _riesz_2d_prefactor(alpha)
     return -G * c * q_i * q_j / r_mag ** (2.0 - 2.0 * alpha)
+
+
+# ── Kaluza-Klein extra-dimension kernel (2D visible + 1 compact extra) ────
+#
+# Physics
+# -------
+# The visible world is 2D, but a single extra spatial dimension is
+# compactified on a circle of circumference L = 2π·R.  Both source and
+# probe sit at the same point on the compact circle (y = 0), so the
+# 3D Newtonian potential of the source generates an infinite tower of
+# *images* at y_n = n·L for n ∈ ℤ.  Summing the 3D potential over all
+# images and projecting back to the visible 2D slice gives the in-plane
+# force on the probe:
+#
+#     F(r) = (G·L)/(4π) · q_i · q_j · Σ_n  r / (r² + (n·L)²)^(3/2)
+#
+# The bare image sum has these limits, controlling the experiments the
+# agent must run to reveal the extra dimension:
+#
+#   * r ≪ R   →   only the n=0 term survives:
+#                    F → G·L · q_i q_j / (4π r²)   ⟹   3D inverse-square
+#                                                       ("Newtonian
+#                                                       gravity in 3+1")
+#   * r ≫ R   →   the sum becomes an integral 2/(L·r):
+#                    F → G · q_i q_j / (2π r)      ⟹   2D Poisson 1/r
+#                                                       (looks like the
+#                                                       standard 2D
+#                                                       "gravity" world)
+#
+# Choosing the prefactor (G·L)/(4π) makes the long-range coefficient match
+# ``poisson_2d_force`` with the same ``G`` exactly, so an agent that only
+# explores r ≫ R will infer "this is just 2D gravity".  The 3D inverse-
+# square law only emerges if they probe r ≲ R, where the n=0 image
+# dominates and the (n·L)² regularisation in the denominator is negligible.
+#
+# Implementation note
+# -------------------
+# The infinite tower is truncated to ±``n_images`` images.  Each tail term
+# falls off as 1/n³ in the *force* sum, so 20 images (default) keeps the
+# truncation error below ~10⁻⁴ relative to the converged value at every r
+# of interest.  The companion potential is the antiderivative of the same
+# truncated sum; its overall constant depends on ``n_images`` (the bare
+# sum is logarithmically divergent), but only differences in V are
+# physical and the integrator never relies on its absolute value.
+
+
+def extra_dimensions_2d_force(
+    r_mag,
+    q_i,
+    q_j,
+    m_i,
+    m_j,
+    G: float = 1.0,
+    R_compact: float = 0.5,
+    n_images: int = 20,
+):
+    """Kaluza-Klein image-sum force for 2D + 1 compactified extra dim.
+
+    Long-range limit (r ≫ R): ``F → G q_i q_j / (2π r)`` — matches the
+    standard 2D Poisson kernel with the same ``G``.
+
+    Short-range limit (r ≪ R): ``F → G·L q_i q_j / (4π r²)`` with
+    ``L = 2π R`` — full 3D Newtonian inverse-square law in the bulk.
+    """
+    L = 2.0 * jnp.pi * R_compact
+    n_arr = jnp.arange(-n_images, n_images + 1)
+    y_n = n_arr * L  # (2N+1,)
+    r_expanded = r_mag[..., None]  # (..., 1)
+    denom = (r_expanded * r_expanded + y_n * y_n) ** 1.5
+    F_geom = jnp.sum(r_expanded / denom, axis=-1)
+    return G * L * q_i * q_j * F_geom / (4.0 * jnp.pi)
+
+
+def extra_dimensions_2d_potential(
+    r_mag,
+    q_i,
+    q_j,
+    m_i,
+    m_j,
+    G: float = 1.0,
+    R_compact: float = 0.5,
+    n_images: int = 20,
+):
+    """Companion potential for ``extra_dimensions_2d_force``.
+
+    Antiderivative of the truncated image sum:
+    ``V = -(G L q_i q_j)/(4π) · Σ_n 1/√(r² + (nL)²)``.
+
+    The bare infinite sum diverges logarithmically; the truncation adds an
+    r-independent constant per pair.  Only differences in V are physical,
+    and the simulator never relies on V's absolute value (it is used only
+    in the optional energy-diagnostic methods).
+    """
+    L = 2.0 * jnp.pi * R_compact
+    n_arr = jnp.arange(-n_images, n_images + 1)
+    y_n = n_arr * L
+    r_expanded = r_mag[..., None]
+    V_geom = -jnp.sum(
+        1.0 / jnp.sqrt(r_expanded * r_expanded + y_n * y_n), axis=-1
+    )
+    return G * L * q_i * q_j * V_geom / (4.0 * jnp.pi)

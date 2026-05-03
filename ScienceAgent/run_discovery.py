@@ -283,6 +283,7 @@ def main():
         "diffusion",
         "wave",
         "oscillator",
+        "extra_dimensions",
         "circle",
         "ether",
         "hubble",
