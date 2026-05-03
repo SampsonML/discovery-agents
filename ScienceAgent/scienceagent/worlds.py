@@ -153,8 +153,7 @@ _TRUE_LAW_EXTRA_DIMENSIONS = (
     r"\dfrac{r}{(r^2+(nL)^2)^{3/2}}\,(-\hat{\mathbf{r}}),"
     r"\quad L = 2\pi R_c$" + "\n"
     r"$G = 1,\;R_c = 0.5$" + "\n"
-    r"$r \gg R_c:\; F \to p_1/(2\pi r)$ (2D Poisson — looks like gravity)"
-    + "\n"
+    r"$r \gg R_c:\; F \to p_1/(2\pi r)$ (2D Poisson — looks like gravity)" + "\n"
     r"$r \ll R_c:\; F \to G L p_1/(4\pi r^2) = R_c p_1/(2 r^2)$ (3D Newton)"
 )
 
@@ -672,7 +671,6 @@ WORLDS = {
             "couplings; all particles respond identically to the resulting total field."
         ),
         "explanation_rubric": _RUBRIC_SPECIES,
-        "system_prompt": "PhysicsSchool/prompts/run_experiments_species.md",
         "law_stub": (
             "def discovered_law(positions, velocities, duration):\n"
             "    # positions: list of 6 [x, y] coords relative to center\n"
@@ -720,7 +718,6 @@ WORLDS = {
             "visible+dark field."
         ),
         "explanation_rubric": _RUBRIC_DARK_MATTER,
-        "system_prompt": "PhysicsSchool/prompts/run_experiments_dark_matter.md",
         "law_stub": (
             "def discovered_law(positions, velocities, duration):\n"
             "    # positions: list of 25 [x, y] coords relative to center\n"
@@ -766,7 +763,6 @@ WORLDS = {
             "neutral probes with zero coupling, feeling forces without sourcing the field."
         ),
         "explanation_rubric": _RUBRIC_THREE_SPECIES,
-        "system_prompt": "PhysicsSchool/prompts/run_experiments_three_species.md",
         "law_stub": (
             "def discovered_law(positions, velocities, duration):\n"
             "    # positions: list of 35 [x, y] coords relative to center\n"
@@ -815,7 +811,6 @@ WORLDS = {
             "motion."
         ),
         "explanation_rubric": _RUBRIC_ETHER,
-        "system_prompt": "PhysicsSchool/prompts/run_experiments_ether.md",
         "law_stub": (
             "def discovered_law(positions, velocities, masses, duration):\n"
             "    # positions: list of 26 [x, y] coords relative to centre\n"
@@ -872,7 +867,6 @@ WORLDS = {
             "and escape."
         ),
         "explanation_rubric": _RUBRIC_HUBBLE,
-        "system_prompt": "PhysicsSchool/prompts/run_experiments_hubble.md",
         "law_stub": (
             "def discovered_law(positions, velocities, masses, duration):\n"
             "    # positions: list of 26 [x, y] coords relative to centre\n"
@@ -914,7 +908,6 @@ WORLDS = {
             "logarithmic 2D Laplacian and pure long-range behavior."
         ),
         "explanation_rubric": _RUBRIC_CIRCLE,
-        "system_prompt": "PhysicsSchool/prompts/run_experiments_circle.md",
         "law_stub": (
             "def discovered_law(positions, velocities, duration):\n"
             "    # positions: list of 11 [x, y] coords relative to center\n"
@@ -1054,6 +1047,26 @@ _FIELD_EXECUTOR_CLASSES = {
 }
 
 
+# Map executor class name → per-topology instructions file. Used by
+# ``get_world`` to populate the ``instructions`` field returned to callers,
+# which the agent substitutes into the master template's
+# ``{{world_instructions}}`` placeholder. Adding a new world that reuses an
+# existing executor automatically inherits the right topology.
+_INSTRUCTIONS_BY_EXECUTOR = {
+    "SimulationExecutor": "PhysicsSchool/prompts/2particle_instructions.md",
+    "OscillatorExecutor": "PhysicsSchool/prompts/2particle_instructions.md",
+    "ExtraDimensionsExecutor": "PhysicsSchool/prompts/2particle_instructions.md",
+    "CoulombEasyExecutor": "PhysicsSchool/prompts/2particle_instructions.md",
+    "DarkMatterExecutor": "PhysicsSchool/prompts/probes_instructions.md",
+    "ThreeSpeciesExecutor": "PhysicsSchool/prompts/probes_instructions.md",
+    "EtherExecutor": "PhysicsSchool/prompts/probes_with_masses_instructions.md",
+    "HubbleExecutor": "PhysicsSchool/prompts/probes_with_masses_instructions.md",
+    "SpeciesExecutor": "PhysicsSchool/prompts/species_instructions.md",
+    "CircleExecutor": "PhysicsSchool/prompts/circle_instructions.md",
+    "CoulombHardExecutor": "PhysicsSchool/prompts/coulomb_hard_instructions.md",
+}
+
+
 def get_world(name: str, engine: str = "field", **executor_overrides) -> dict:
     """
     Return a config dict for the named world with keys:
@@ -1110,10 +1123,14 @@ def get_world(name: str, engine: str = "field", **executor_overrides) -> dict:
         "    # your best implementation\n"
         "    return final_pos2, final_vel2\n"
     )
-    default_system_prompt = "PhysicsSchool/prompts/run_experiments.md"
+    default_system_prompt = "PhysicsSchool/prompts/_template_interactive.md"
     default_experiment_format = (
         '<run_experiment>[{"p1": 1.0, "p2": 1.0, "pos2": [3.0, 0.0], '
         '"velocity2": [0.0, 0.0], "measurement_times": [0.5, 1.0, 2.0]}]</run_experiment>'
+    )
+
+    instructions_path = entry.get(
+        "instructions", _INSTRUCTIONS_BY_EXECUTOR.get(executor_class_name)
     )
 
     return {
@@ -1124,6 +1141,7 @@ def get_world(name: str, engine: str = "field", **executor_overrides) -> dict:
         "optimal_explanation": entry.get("optimal_explanation", ""),
         "explanation_rubric": entry.get("explanation_rubric", ""),
         "system_prompt": entry.get("system_prompt", default_system_prompt),
+        "instructions": instructions_path,
         "law_stub": entry.get("law_stub", default_law_stub),
         "experiment_format": entry.get("experiment_format", default_experiment_format),
     }

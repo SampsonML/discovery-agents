@@ -92,18 +92,38 @@ def fit_parameters():
 """
 
 
-def _load_system_prompt(prompt_path: str = None) -> str:
+def _load_system_prompt(prompt_path: str = None, instructions_path: str = None) -> str:
+    """Load a system prompt and substitute {{world_instructions}} if present.
+
+    The master templates (_template_interactive.md / _template_random.md) carry
+    a {{world_instructions}} placeholder that gets replaced with the contents
+    of a per-topology instructions file (e.g. 2particle_instructions.md).
+    Legacy per-world prompts without the placeholder are loaded as-is.
+    """
     import os
 
     prompt_path = prompt_path or _SYSTEM_PROMPT_PATH
     here = os.path.dirname(__file__)
     root = os.path.abspath(os.path.join(here, "..", "..", ".."))
-    path = os.path.join(root, prompt_path)
-    if not os.path.exists(path):
-        # Fallback: assume CWD is repo root
-        path = prompt_path
-    with open(path) as f:
-        return f.read()
+
+    def _read(rel: str) -> str:
+        full = os.path.join(root, rel)
+        if not os.path.exists(full):
+            full = rel  # fallback: assume CWD is repo root
+        with open(full) as f:
+            return f.read()
+
+    template = _read(prompt_path)
+    if "{{world_instructions}}" in template:
+        if not instructions_path:
+            raise ValueError(
+                f"Prompt {prompt_path!r} contains a {{world_instructions}} "
+                "placeholder but no instructions_path was supplied."
+            )
+        template = template.replace(
+            "{{world_instructions}}", _read(instructions_path).strip()
+        )
+    return template
 
 
 class DiscoveryAgent:
@@ -129,6 +149,7 @@ class DiscoveryAgent:
         verbose: bool = True,
         show_experiment_output: bool = False,
         system_prompt_path: str = None,
+        instructions_path: str = None,
         law_stub: str = None,
         experiment_format: str = None,
         critic=None,
@@ -146,6 +167,7 @@ class DiscoveryAgent:
         self.show_experiment_output = show_experiment_output
         self.critic = critic
         self._system_prompt_path = system_prompt_path or _SYSTEM_PROMPT_PATH
+        self._instructions_path = instructions_path
         self._law_stub = law_stub or _DEFAULT_LAW_STUB
         self._experiment_format = experiment_format or _DEFAULT_EXPERIMENT_FORMAT
         self.max_rounds = max(1, int(max_rounds))
@@ -546,7 +568,9 @@ class DiscoveryAgent:
 
     def _build_system_prompt(self) -> str:
         try:
-            base = _load_system_prompt(self._system_prompt_path)
+            base = _load_system_prompt(
+                self._system_prompt_path, self._instructions_path
+            )
         except FileNotFoundError:
             base = (
                 "You are a scientific discovery agent. Design experiments, "

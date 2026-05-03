@@ -164,6 +164,7 @@ def main():
     optimal_explanation = world.get("optimal_explanation", "")
     explanation_rubric = world.get("explanation_rubric", "")
     system_prompt_path = world["system_prompt"]
+    instructions_path = world["instructions"]
 
     random_generator = None
     if args.random_experiments:
@@ -171,17 +172,9 @@ def main():
             args.random_seed if args.random_seed is not None else args.noise_seed
         )
         random_generator = make_random_generator(args.world, seed=random_seed)
-        _RANDOM_PROMPT_OVERRIDES = {
-            "gravity": "PhysicsSchool/prompts/run_experiments_random.md",
-            "yukawa": "PhysicsSchool/prompts/run_experiments_random.md",
-            "fractional": "PhysicsSchool/prompts/run_experiments_random.md",
-            "diffusion": "PhysicsSchool/prompts/run_experiments_random.md",
-            "wave": "PhysicsSchool/prompts/run_experiments_random.md",
-            "dark_matter": "PhysicsSchool/prompts/run_experiments_dark_matter_random.md",
-            "three_species": "PhysicsSchool/prompts/run_experiments_three_species_random.md",
-        }
-        if args.world in _RANDOM_PROMPT_OVERRIDES:
-            system_prompt_path = _RANDOM_PROMPT_OVERRIDES[args.world]
+        # All worlds share one random-mode master template; the per-topology
+        # instructions block is substituted in by the agent's loader.
+        system_prompt_path = "PhysicsSchool/prompts/_template_random.md"
 
     # Reasoning models need more output tokens for chain-of-thought + XML tags
     max_tokens = args.max_tokens
@@ -220,8 +213,7 @@ def main():
 
         atexit.register(_cleanup_trajectory_csv)
         print(
-            f"Trajectory CSV: {csv_path}  (run_id={run_id})  "
-            f"[auto-removed on exit]"
+            f"Trajectory CSV: {csv_path}  (run_id={run_id})  " f"[auto-removed on exit]"
         )
 
     agent_kwargs = dict(
@@ -232,6 +224,7 @@ def main():
         verbose=not args.quiet,
         show_experiment_output=args.show_experiment_output,
         system_prompt_path=system_prompt_path,
+        instructions_path=instructions_path,
         law_stub=world["law_stub"],
         experiment_format=world["experiment_format"],
         critic=critic,
