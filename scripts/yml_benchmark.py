@@ -28,6 +28,12 @@ import numpy as np
 _BOOTSTRAP_RESAMPLES = 5000
 _BOOTSTRAP_SEED = 0  # fixed so summary.txt is reproducible across re-aggregation
 
+# Errors aggregate as geometric means; values below this are dropped (log undefined).
+_GEOM_MIN = 1e-14
+# A (model, world) pair "passes" when these are both met across its seeds.
+_PASS_ERR_THRESHOLD = 0.5     # geom. mean of mean_pos_error must be < this
+_PASS_SCORE_THRESHOLD = 0.5   # arithmetic mean of explanation score must be >= this
+
 try:
     import yaml
 except ImportError:
@@ -56,6 +62,15 @@ def load_config(path: Path) -> dict:
     if critic not in ("on", "off"):
         raise ValueError("critic must be 'on'/'off' (or true/false)")
     cfg["critic"] = critic
+
+    random_experiments = cfg.get("random_experiments", False)
+    if isinstance(random_experiments, bool):
+        random_experiments = "on" if random_experiments else "off"
+    elif isinstance(random_experiments, str):
+        random_experiments = random_experiments.lower()
+    if random_experiments not in ("on", "off"):
+        raise ValueError("random_experiments must be 'on'/'off' (or true/false)")
+    cfg["random_experiments"] = random_experiments
     if not isinstance(cfg["models"], list) or not cfg["models"]:
         raise ValueError("models must be a non-empty list")
     if not isinstance(cfg["worlds"], list) or not cfg["worlds"]:
@@ -107,6 +122,7 @@ CRITIC="{cfg['critic']}"
 CRITIC_MODEL="{cfg['critic_model']}"
 MAX_ROUNDS={cfg['max_rounds']}
 NOISE_STD={cfg['noise_std']}
+RANDOM_EXPERIMENTS="{cfg['random_experiments']}"
 
 N_TOTAL=$(( ${{#MODELS[@]}} * ${{#WORLDS[@]}} * ${{#SEEDS[@]}} ))
 
@@ -119,6 +135,7 @@ echo "  seeds  : ${{SEEDS[*]}}"
 echo "  critic : ${{CRITIC}} (model: ${{CRITIC_MODEL}})"
 echo "  rounds : ${{MAX_ROUNDS}}"
 echo "  noise  : σ=${{NOISE_STD}}"
+echo "  random : ${{RANDOM_EXPERIMENTS}}"
 echo "  total trials : ${{N_TOTAL}}"
 echo "=========================================="
 
@@ -138,6 +155,11 @@ for model in "${{MODELS[@]}}"; do
         critic_flags=(--use-critic --critic-model "${{CRITIC_MODEL}}")
       fi
 
+      random_flags=()
+      if [[ "${{RANDOM_EXPERIMENTS}}" == "on" ]]; then
+        random_flags=(--random-experiments --random-seed "${{seed}}")
+      fi
+
       t_trial_start=$(date +%s)
       printf "[%3d/%3d] model=%s world=%s seed=%s\\n" \\
         "${{trial}}" "${{N_TOTAL}}" "${{model}}" "${{world}}" "${{seed}}"
@@ -151,6 +173,7 @@ for model in "${{MODELS[@]}}"; do
         --store_output "${{base}}" \\
         --quiet \\
         ${{critic_flags[@]+"${{critic_flags[@]}}"}} \\
+        ${{random_flags[@]+"${{random_flags[@]}}"}} \\
         > "${{base}}.stdout.log" 2>&1
       rc=$?
       t_trial_end=$(date +%s)
@@ -202,7 +225,7 @@ def aggregate(out_root: Path) -> Path:
     lines.append("=" * 116)
     header = (
         f"{'model':<50} {'world':<15} {'n':>3} "
-        f"{'expl_score [95% CI]':>22} {'mean_pos_err [95% CI]':>22}"
+        f"{'expl_score [95% CI]':>22} {'geom_pos_err [95% CI]':>22}"
     )
     lines.append(header)
     lines.append("-" * 116)
@@ -220,17 +243,18 @@ def aggregate(out_root: Path) -> Path:
         ]
         n = len(values)
         score_str = _fmt_mean_bootstrap(scores)
-        err_str = _fmt_mean_bootstrap(errs)
+        err_str = _fmt_geom_mean_bootstrap(errs)
         lines.append(f"{model:<50} {world:<15} {n:>3} {score_str:>22} {err_str:>22}")
 
     lines.append("-" * 116)
-    lines.append("expl_score: explanation judge score in [0, 1], higher is better.")
+    lines.append("expl_score: explanation judge score in [0, 1], higher is better. Arithmetic mean.")
     lines.append(
-        "mean_pos_err: trajectory mean position error, lower is better; pass < 0.1."
+        "geom_pos_err: geometric mean of trajectory mean_pos_error across seeds "
+        f"(values < {_GEOM_MIN:.0e} dropped); lower is better."
     )
     lines.append(
-        f"Format: mean [2.5%, 97.5%] from {_BOOTSTRAP_RESAMPLES} bootstrap resamples "
-        f"of the mean (seed={_BOOTSTRAP_SEED}). n=1 → no CI. 'n/a' = no successful runs."
+        f"Format: point estimate [2.5%, 97.5%] from {_BOOTSTRAP_RESAMPLES} bootstrap "
+        f"resamples (seed={_BOOTSTRAP_SEED}). n=1 → no CI. 'n/a' = no successful runs."
     )
 
     out_path = out_root / "summary.txt"
@@ -255,27 +279,40 @@ def _per_model_pooled(by_trial):
 
 def _write_per_model_summary(by_trial, out_root: Path) -> Path:
     pooled = _per_model_pooled(by_trial)
+    models = sorted({m for m, _ in by_trial.keys()})
+    worlds = sorted({w for _, w in by_trial.keys()})
+    passed = _passed_per_model(by_trial, models, worlds)
+    n_trials = _trials_per_model(by_trial, models, worlds)
     lines = []
     lines.append(f"Per-model summary  ({out_root.name})")
-    lines.append("=" * 116)
+    lines.append("=" * 124)
     header = (
-        f"{'model':<50} {'n_trials':>9} "
-        f"{'expl_score [95% CI]':>22} {'mean_pos_err [95% CI]':>22}"
+        f"{'model':<50} {'n_trials':>9} {'passed':>10} "
+        f"{'expl_score [95% CI]':>22} {'geom_pos_err [95% CI]':>26}"
     )
     lines.append(header)
-    lines.append("-" * 116)
+    lines.append("-" * 124)
     for model in sorted(pooled):
         errs, scores = pooled[model]
         n = max(len(errs), len(scores))
+        passed_str = f"{passed.get(model, 0)}/{n_trials.get(model, n)}"
         lines.append(
-            f"{model:<50} {n:>9} "
-            f"{_fmt_mean_bootstrap(scores):>22} {_fmt_mean_bootstrap(errs):>22}"
+            f"{model:<50} {n:>9} {passed_str:>10} "
+            f"{_fmt_mean_bootstrap(scores):>22} {_fmt_geom_mean_bootstrap(errs):>26}"
         )
-    lines.append("-" * 116)
+    lines.append("-" * 124)
     lines.append("Pooled across all worlds and seeds (every trial counts equally).")
     lines.append(
-        f"Format: mean [2.5%, 97.5%] from {_BOOTSTRAP_RESAMPLES} bootstrap resamples "
-        f"of the mean (seed={_BOOTSTRAP_SEED}). n=1 → no CI. 'n/a' = no successful runs."
+        f"passed: number of trials (summed over worlds & seeds) with mean_pos_error < "
+        f"{_PASS_ERR_THRESHOLD} AND explanation_score >= {_PASS_SCORE_THRESHOLD}."
+    )
+    lines.append(
+        "geom_pos_err: geometric mean of mean_pos_error "
+        f"(values < {_GEOM_MIN:.0e} dropped); lower is better."
+    )
+    lines.append(
+        f"Format: point estimate [2.5%, 97.5%] from {_BOOTSTRAP_RESAMPLES} bootstrap "
+        f"resamples (seed={_BOOTSTRAP_SEED}). n=1 → no CI. 'n/a' = no successful runs."
     )
     out_path = out_root / "summary_per_model.txt"
     out_path.write_text("\n".join(lines) + "\n")
@@ -313,6 +350,50 @@ def _bootstrap_ci(values):
     return (m, m - lo, hi - m)
 
 
+def _bootstrap_ci_geom(values):
+    """Bootstrap CI of the geometric mean. Drops values < _GEOM_MIN."""
+    arr = np.asarray([v for v in values if v >= _GEOM_MIN], dtype=float)
+    if arr.size == 0:
+        return None
+    if arr.size == 1:
+        return (float(arr[0]), 0.0, 0.0)
+    rng = np.random.default_rng(_BOOTSTRAP_SEED)
+    idx = rng.integers(0, arr.size, size=(_BOOTSTRAP_RESAMPLES, arr.size))
+    boot = np.exp(np.log(arr[idx]).mean(axis=1))
+    lo, hi = np.percentile(boot, [2.5, 97.5])
+    m = float(np.exp(np.log(arr).mean()))
+    return (m, m - lo, hi - m)
+
+
+def _trial_passes(err, score) -> bool:
+    """A single trial passes iff mean_pos_error < threshold AND explanation_score >= threshold."""
+    if not isinstance(err, (int, float)) or not math.isfinite(err):
+        return False
+    if not isinstance(score, (int, float)) or not math.isfinite(score):
+        return False
+    return float(err) < _PASS_ERR_THRESHOLD and float(score) >= _PASS_SCORE_THRESHOLD
+
+
+def _passed_per_model(by_trial, models, worlds) -> dict[str, int]:
+    """Sum of trial passes across every (world, seed) for each model."""
+    counts = {m: 0 for m in models}
+    for (m, _w), values in by_trial.items():
+        if m not in counts:
+            continue
+        for err, score in values:
+            if _trial_passes(err, score):
+                counts[m] += 1
+    return counts
+
+
+def _trials_per_model(by_trial, models, worlds) -> dict[str, int]:
+    """Number of (world, seed) trials run for each model — denominator for passes."""
+    return {
+        m: sum(len(by_trial.get((m, w), [])) for w in worlds)
+        for m in models
+    }
+
+
 def _make_plots(by_trial, out_root: Path) -> None:
     """Write summary.{png,pdf} (grouped bars) and runs.{png,pdf} (strip plot)."""
     if not by_trial:
@@ -326,11 +407,17 @@ def _make_plots(by_trial, out_root: Path) -> None:
         print("matplotlib not available; skipping plots", file=sys.stderr)
         return
 
+    plt.rcParams.update({
+        "font.family": "serif",
+        "mathtext.fontset": "dejavuserif",
+    })
+
     models = sorted({m for m, _ in by_trial.keys()})
     worlds = sorted({w for _, w in by_trial.keys()})
     _make_bar_plot(by_trial, models, worlds, out_root, plt)
     _make_strip_plot(by_trial, models, worlds, out_root, plt)
     _make_per_model_plot(by_trial, models, out_root, plt)
+    _make_passed_plot(by_trial, models, worlds, out_root, plt)
 
 
 def _make_per_model_plot(by_trial, models, out_root, plt) -> None:
@@ -350,7 +437,7 @@ def _make_per_model_plot(by_trial, models, out_root, plt) -> None:
     for model in models:
         errs, scores = pooled.get(model, ([], []))
         s = _bootstrap_ci(scores)
-        e = _bootstrap_ci(errs)
+        e = _bootstrap_ci_geom(errs)
         score_means.append(s[0] if s else np.nan)
         score_lo.append(s[1] if s else 0.0)
         score_hi.append(s[2] if s else 0.0)
@@ -370,8 +457,8 @@ def _make_per_model_plot(by_trial, models, out_root, plt) -> None:
         ),
         (
             ax_err,
-            "Mean position error (pooled across worlds)",
-            "error",
+            "Mean position error (geom. mean, pooled across worlds)",
+            "geom. mean error",
         ),
     ]:
         ax.set_xticks(x)
@@ -386,6 +473,65 @@ def _make_per_model_plot(by_trial, models, out_root, plt) -> None:
     fig.tight_layout()
     fig.savefig(out_root / "summary_per_model.png", dpi=150, bbox_inches="tight")
     fig.savefig(out_root / "summary_per_model.pdf", bbox_inches="tight")
+    plt.close(fig)
+
+
+def _make_passed_plot(by_trial, models, worlds, out_root, plt) -> None:
+    """3-row plot: worlds passed, explanation score, MSE — model on x-axis."""
+    n_models = len(models)
+    n_worlds = len(worlds)
+    if n_models == 0:
+        return
+
+    pooled = _per_model_pooled(by_trial)
+    passed = _passed_per_model(by_trial, models, worlds)
+
+    fig_w = max(8.0, 1.3 * n_models)
+    fig, (ax_pass, ax_score, ax_err) = plt.subplots(
+        3, 1, figsize=(fig_w, 11), sharex=True
+    )
+    x = np.arange(n_models)
+    cmap = plt.get_cmap("Dark2")
+    colors = [cmap(i % cmap.N) for i in range(n_models)]
+    ylabel_kw = {"fontsize": 18}
+
+    # Row 1: trials passed (summed over all worlds and seeds).
+    pass_counts = [passed.get(m, 0) for m in models]
+    ax_pass.bar(x, pass_counts, color=colors)
+    ax_pass.set_ylabel("worlds passed", **ylabel_kw)
+
+    # Rows 2 & 3: pooled across all worlds for each model.
+    score_means, score_lo, score_hi = [], [], []
+    err_means, err_lo, err_hi = [], [], []
+    for model in models:
+        errs, scores = pooled.get(model, ([], []))
+        s = _bootstrap_ci(scores)
+        e = _bootstrap_ci_geom(errs)
+        score_means.append(s[0] if s else np.nan)
+        score_lo.append(s[1] if s else 0.0)
+        score_hi.append(s[2] if s else 0.0)
+        err_means.append(e[0] if e else np.nan)
+        err_lo.append(e[1] if e else 0.0)
+        err_hi.append(e[2] if e else 0.0)
+
+    ax_score.bar(
+        x, score_means, yerr=[score_lo, score_hi], color=colors, capsize=3
+    )
+    ax_score.set_ylabel("Explanation score (0-1)", **ylabel_kw)
+    ax_score.set_ylim(0, 1.05)
+
+    ax_err.bar(x, err_means, yerr=[err_lo, err_hi], color=colors, capsize=3)
+    ax_err.set_ylabel("MSE (geom. mean)", **ylabel_kw)
+    ax_err.set_yscale("log")
+
+    for ax in (ax_pass, ax_score, ax_err):
+        ax.grid(axis="y", linestyle=":", alpha=0.4)
+    ax_err.set_xticks(x)
+    ax_err.set_xticklabels([_short(m) for m in models], rotation=20, ha="right")
+
+    fig.tight_layout()
+    fig.savefig(out_root / "summary_passed.png", dpi=150, bbox_inches="tight")
+    fig.savefig(out_root / "summary_passed.pdf", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -406,7 +552,7 @@ def _make_bar_plot(by_trial, models, worlds, out_root, plt) -> None:
         for w in worlds:
             errs, scores = _trial_values(by_trial, model, w)
             s = _bootstrap_ci(scores)
-            e = _bootstrap_ci(errs)
+            e = _bootstrap_ci_geom(errs)
             sh.append(s[0] if s else np.nan)
             sl.append(s[1] if s else 0.0)
             su.append(s[2] if s else 0.0)
@@ -435,7 +581,7 @@ def _make_bar_plot(by_trial, models, worlds, out_root, plt) -> None:
 
     for ax, title, ylabel in [
         (ax_score, "Explanation score (higher = better)", "score [0, 1]"),
-        (ax_err, "Mean position error (lower = better)", "error"),
+        (ax_err, "Mean position error (geom. mean, lower = better)", "geom. mean error"),
     ]:
         ax.set_xticks(x)
         ax.set_ylabel(ylabel)
@@ -542,6 +688,22 @@ def _fmt_mean_bootstrap(values: list[float]) -> str:
     boot_means = arr[idx].mean(axis=1)
     lo, hi = np.percentile(boot_means, [2.5, 97.5])
     return f"{float(arr.mean()):.3f} [{lo:.3f}, {hi:.3f}]"
+
+
+def _fmt_geom_mean_bootstrap(values: list[float]) -> str:
+    """Geom. mean and 95% bootstrap CI of the geom. mean. Drops values < _GEOM_MIN."""
+    filtered = [float(v) for v in values if v >= _GEOM_MIN]
+    if not filtered:
+        return "n/a"
+    if len(filtered) == 1:
+        return f"{filtered[0]:.3f}"
+    arr = np.asarray(filtered, dtype=float)
+    rng = np.random.default_rng(_BOOTSTRAP_SEED)
+    idx = rng.integers(0, arr.size, size=(_BOOTSTRAP_RESAMPLES, arr.size))
+    boot = np.exp(np.log(arr[idx]).mean(axis=1))
+    lo, hi = np.percentile(boot, [2.5, 97.5])
+    m = float(np.exp(np.log(arr).mean()))
+    return f"{m:.3f} [{lo:.3f}, {hi:.3f}]"
 
 
 def main() -> int:
