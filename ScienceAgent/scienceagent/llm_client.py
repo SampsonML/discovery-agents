@@ -8,6 +8,7 @@ Provider routing is done by model string prefix:
                           (OPENAI_API_KEY, base_url=https://api.groq.com/openai/v1)
   "azure/gpt-5.4"      → Azure OpenAI, deployment gpt-5.4-samat
   "azure/gpt-5.4-pro"  → Azure OpenAI, deployment gpt-5.4-pro-samat
+  "azure/gpt-5.5"      → Azure OpenAI, deployment gpt-5.5
                           (AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT)
   "gpt-*", "o1-*"      → OpenAI SDK     (OPENAI_API_KEY)
   "openai/*"            → OpenAI SDK with default base_url
@@ -171,6 +172,7 @@ def _groq_complete(model, messages, system, max_tokens):
 _AZURE_DEPLOYMENTS = {
     "gpt-5.4": "gpt-5.4-samat",
     "gpt-5.4-pro": "gpt-5.4-pro-samat",
+    "gpt-5.5": "gpt-5.5",
 }
 
 

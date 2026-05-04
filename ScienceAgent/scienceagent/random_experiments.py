@@ -56,12 +56,43 @@ def _sample_probes(rng: np.random.Generator, n: int = 5) -> dict:
     }
 
 
+def _sample_probes_with_masses(rng: np.random.Generator, n: int = 5) -> dict:
+    # Probe masses drawn from the same {1, 2, 4} class set the ether/hubble
+    # worlds use for their orbiters — exposing the mass dependence is the whole
+    # point of these worlds, so a fixed default mass would mask it.
+    mass_choices = np.array([1.0, 2.0, 4.0])
+    return {
+        "probe_positions": _round_pairs(rng.uniform(-10.0, 10.0, (n, 2))),
+        "probe_velocities": _round_pairs(rng.uniform(-5.0, 5.0, (n, 2))),
+        "probe_masses": _round_list(rng.choice(mass_choices, size=n)),
+        "measurement_times": list(_DEFAULT_TIMES),
+    }
+
+
 def sample_dark_matter(rng: np.random.Generator) -> dict:
     return _sample_probes(rng, n=5)
 
 
 def sample_three_species(rng: np.random.Generator) -> dict:
     return _sample_probes(rng, n=5)
+
+
+def sample_ether(rng: np.random.Generator) -> dict:
+    return _sample_probes_with_masses(rng, n=5)
+
+
+def sample_hubble(rng: np.random.Generator) -> dict:
+    return _sample_probes_with_masses(rng, n=5)
+
+
+def sample_coulomb_hard(rng: np.random.Generator, n: int = 10) -> dict:
+    """coulomb_hard: 10 mobile particles, signed charges in [-3, 3]."""
+    return {
+        "positions": _round_pairs(rng.uniform(-10.0, 10.0, (n, 2))),
+        "velocities": _round_pairs(rng.uniform(-3.0, 3.0, (n, 2))),
+        "charges": _round_list(rng.uniform(-3.0, 3.0, n)),
+        "measurement_times": list(_DEFAULT_TIMES),
+    }
 
 
 def sample_species(rng: np.random.Generator) -> dict:
@@ -90,8 +121,12 @@ _SAMPLERS: dict[str, Callable[[np.random.Generator], dict]] = {
     "wave": sample_two_particle,
     "oscillator": sample_two_particle,
     "extra_dimensions": sample_two_particle,
+    "coulomb_easy": sample_two_particle,
+    "coulomb_hard": sample_coulomb_hard,
     "dark_matter": sample_dark_matter,
     "three_species": sample_three_species,
+    "ether": sample_ether,
+    "hubble": sample_hubble,
     "species": sample_species,
     "circle": sample_circle,
 }
