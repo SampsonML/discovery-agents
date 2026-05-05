@@ -51,4 +51,3 @@ def discovered_law(positions, velocities, duration):
     return final_positions
 ```
 
-If the world has hidden per-particle structure (e.g. different source couplings or species membership), encode the discovered values as hard-coded constants inside the function body — your law must capture them to score well.

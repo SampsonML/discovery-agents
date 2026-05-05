@@ -109,7 +109,19 @@ def main():
         help="Disable per-experiment trajectory CSV logging "
         "(default: log to results/trajectories/<world>.csv).",
     )
+    parser.add_argument(
+        "--no-mse",
+        action="store_true",
+        help="Disable mid-round MSE fitting: the <run_mse_fit> "
+        "tool is hidden from the prompt and any <run_mse_fit> tag "
+        "the agent emits is rejected with an error message. "
+        "End-of-mission fitting via fit_parameters() in <final_law> "
+        "still runs as usual. Uses PhysicsSchool/prompts/_template_no_mse.md.",
+    )
     args = parser.parse_args()
+
+    if args.no_mse and args.random_experiments:
+        parser.error("--no-mse and --random-experiments are mutually exclusive")
 
     from scienceagent.worlds import get_world
     from scienceagent.agent import DiscoveryAgent
@@ -175,6 +187,11 @@ def main():
         # All worlds share one random-mode master template; the per-topology
         # instructions block is substituted in by the agent's loader.
         system_prompt_path = "PhysicsSchool/prompts/_template_random.md"
+    elif args.no_mse:
+        # Same per-topology instructions as interactive mode, but the prompt
+        # explicitly tells the agent there is no mid-round MSE fitting and
+        # the agent loop rejects <run_mse_fit> tags.
+        system_prompt_path = "PhysicsSchool/prompts/_template_no_mse.md"
 
     # Reasoning models need more output tokens for chain-of-thought + XML tags
     max_tokens = args.max_tokens
@@ -231,6 +248,7 @@ def main():
         random_experiments=args.random_experiments,
         random_generator=random_generator,
         trajectory_logger=trajectory_logger,
+        no_mse=args.no_mse,
     )
     if args.max_rounds is not None:
         agent_kwargs["max_rounds"] = args.max_rounds
@@ -507,11 +525,11 @@ def _write_run_txt(
     lines += [sep, "EVALUATION", sep]
     if evaluation:
         for case in evaluation.get("per_case", []):
-            lines.append(f"  Case error: {case:.4f}")
+            lines.append(f"  Case MSE: {case:.4f}")
         lines += [
-            f"  Mean position error : {evaluation.get('mean_pos_error', float('inf')):.4f}",
-            f"  Max  position error : {evaluation.get('max_pos_error',  float('inf')):.4f}",
-            f"  Result              : {'PASS' if evaluation.get('passed') else 'FAIL'}",
+            f"  Mean particle MSE : {evaluation.get('mean_pos_error', float('inf')):.4f}",
+            f"  Max  particle MSE : {evaluation.get('max_pos_error',  float('inf')):.4f}",
+            f"  Result            : {'PASS' if evaluation.get('passed') else 'FAIL'}",
         ]
         fit = evaluation.get("fit")
         if fit:

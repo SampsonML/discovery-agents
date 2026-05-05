@@ -1,6 +1,8 @@
 """
 Evaluator: compares the agent's discovered_law against ground-truth trajectories.
-For now, just using raw MSE of the predicted vs PhysicsSchool particle paths
+The saved metric `mean_pos_error` is the mean particle MSE — squared L2 position
+error per particle, averaged over (particle, time, case). Pass thresholds are
+likewise on squared distance.
 """
 
 import functools
@@ -137,10 +139,11 @@ class Evaluator:
 
         Returns:
             dict with keys:
-                mean_pos_error  — mean Euclidean position error across all (case, time) pairs
-                max_pos_error   — max Euclidean position error
-                per_case        — list of per-case mean position errors
-                passed          — bool, True if mean_pos_error < 0.1 (10% of typical scale)
+                mean_pos_error  — mean particle MSE: mean of squared L2 position error
+                                  across all (particle, time, case) tuples
+                max_pos_error   — max squared L2 position error
+                per_case        — list of per-case mean particle MSE
+                passed          — bool, True if mean_pos_error < 0.01 (squared-distance threshold)
                 fit             — info dict from the parameter fit, or None
         """
         discovered_law = _compile_law(law_source)
@@ -181,7 +184,8 @@ class Evaluator:
                     if p2_out.ndim == 2:
                         p2_out = p2_out[-1]
                     pred_traj.append(p2_out.tolist())
-                    err = float(np.linalg.norm(p2_out - np.asarray(gt_pos2[j])))
+                    diff = p2_out - np.asarray(gt_pos2[j])
+                    err = float(np.dot(diff, diff))  # squared L2 = particle MSE for this timestep
                     case_errors.append(err)
 
                 mean_err = float(np.mean(case_errors))
@@ -201,7 +205,7 @@ class Evaluator:
                 )
 
                 if verbose:
-                    print(f"  Case {i+1}: mean_pos_error = {mean_err:.4f}")
+                    print(f"  Case {i+1}: mean_particle_mse = {mean_err:.4f}")
 
             except Exception as e:
                 if verbose:
@@ -223,11 +227,11 @@ class Evaluator:
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
-        passed = mean_total < 0.1
+        passed = mean_total < 0.01
 
         if verbose:
-            print(f"\n  Mean position error: {mean_total:.4f}")
-            print(f"  Max  position error: {max_total:.4f}")
+            print(f"\n  Mean particle MSE: {mean_total:.4f}")
+            print(f"  Max  particle MSE: {max_total:.4f}")
             print(f"  Result: {'PASS' if passed else 'FAIL'}")
 
         return {
@@ -265,8 +269,8 @@ class CircleEvaluator:
         return     — list/array of 11 [x, y] positions at t=duration
 
     The evaluator calls discovered_law once per measurement time (duration=t),
-    computes Euclidean error per particle, and averages across all particles,
-    times, and test cases.
+    computes squared L2 error per particle (particle MSE), and averages across
+    all particles, times, and test cases.
     """
 
     def __init__(self, executor, test_cases: list[dict] = None):
@@ -325,8 +329,9 @@ class CircleEvaluator:
                     pos_out = np.asarray(pos_out)  # (11, 2)
                     pred_traj.append(pos_out.tolist())
 
-                    # Per-particle Euclidean error
-                    errs = np.linalg.norm(pos_out - gt_positions[j], axis=-1)  # (11,)
+                    # Per-particle squared L2 error (particle MSE for this timestep)
+                    diff = pos_out - gt_positions[j]
+                    errs = np.sum(diff * diff, axis=-1)  # (11,)
                     case_errors.append(float(np.mean(errs)))
                     all_errors.extend(errs.tolist())
 
@@ -346,7 +351,7 @@ class CircleEvaluator:
                 if verbose:
                     print(
                         f"  Case {i+1} (r={case['ring_radius']}, v_t={case['initial_tangential_velocity']}): "
-                        f"mean_pos_error = {mean_err:.4f}"
+                        f"mean_particle_mse = {mean_err:.4f}"
                     )
 
             except Exception as e:
@@ -368,11 +373,11 @@ class CircleEvaluator:
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
-        passed = mean_total < 0.5  # looser threshold: 11-particle problem is harder
+        passed = mean_total < 0.25  # squared-distance threshold: 11-particle problem is harder
 
         if verbose:
-            print(f"\n  Mean position error (all particles): {mean_total:.4f}")
-            print(f"  Max  position error:                 {max_total:.4f}")
+            print(f"\n  Mean particle MSE (all particles): {mean_total:.4f}")
+            print(f"  Max  particle MSE:                 {max_total:.4f}")
             print(f"  Result: {'PASS' if passed else 'FAIL'}")
 
         return {
@@ -446,7 +451,8 @@ class SpeciesEvaluator:
                     pos_out = np.asarray(pos_out)  # (6, 2)
                     pred_traj.append(pos_out.tolist())
 
-                    errs = np.linalg.norm(pos_out - gt_positions[j], axis=-1)  # (6,)
+                    diff = pos_out - gt_positions[j]
+                    errs = np.sum(diff * diff, axis=-1)  # squared L2 per particle (6,)
                     case_errors.append(float(np.mean(errs)))
                     all_errors.extend(errs.tolist())
 
@@ -462,7 +468,7 @@ class SpeciesEvaluator:
                     }
                 )
                 if verbose:
-                    print(f"  Case {i+1}: mean_pos_error = {mean_err:.4f}")
+                    print(f"  Case {i+1}: mean_particle_mse = {mean_err:.4f}")
 
             except Exception as e:
                 if verbose:
@@ -481,11 +487,11 @@ class SpeciesEvaluator:
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
-        passed = mean_total < 0.3
+        passed = mean_total < 0.09
 
         if verbose:
-            print(f"\n  Mean position error (all particles): {mean_total:.4f}")
-            print(f"  Max  position error:                 {max_total:.4f}")
+            print(f"\n  Mean particle MSE (all particles): {mean_total:.4f}")
+            print(f"  Max  particle MSE:                 {max_total:.4f}")
             print(f"  Result: {'PASS' if passed else 'FAIL'}")
 
         return {
@@ -562,7 +568,8 @@ class ThreeSpeciesEvaluator:
                     pos_out = np.asarray(pos_out)  # (35, 2)
                     pred_traj.append(pos_out.tolist())
 
-                    errs = np.linalg.norm(pos_out - gt_positions[j], axis=-1)  # (35,)
+                    diff = pos_out - gt_positions[j]
+                    errs = np.sum(diff * diff, axis=-1)  # squared L2 per particle (35,)
                     case_errors.append(float(np.mean(errs)))
                     all_errors.extend(errs.tolist())
 
@@ -578,7 +585,7 @@ class ThreeSpeciesEvaluator:
                     }
                 )
                 if verbose:
-                    print(f"  Case {i+1}: mean_pos_error = {mean_err:.4f}")
+                    print(f"  Case {i+1}: mean_particle_mse = {mean_err:.4f}")
 
             except Exception as e:
                 if verbose:
@@ -597,11 +604,11 @@ class ThreeSpeciesEvaluator:
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
-        passed = mean_total < 0.5  # looser threshold: 35-particle problem is harder
+        passed = mean_total < 0.25  # squared-distance threshold: 35-particle problem is harder
 
         if verbose:
-            print(f"\n  Mean position error (all particles): {mean_total:.4f}")
-            print(f"  Max  position error:                 {max_total:.4f}")
+            print(f"\n  Mean particle MSE (all particles): {mean_total:.4f}")
+            print(f"  Max  particle MSE:                 {max_total:.4f}")
             print(f"  Result: {'PASS' if passed else 'FAIL'}")
 
         return {
@@ -701,10 +708,9 @@ class DarkMatterEvaluator:
                     pos_out = np.asarray(pos_out)  # (25, 2)
                     pred_traj.append(pos_out.tolist())
 
-                    # Score only on the 5 probe particles
-                    errs = np.linalg.norm(
-                        pos_out[probe_slice] - gt_positions[j, probe_slice], axis=-1
-                    )
+                    # Score only on the 5 probe particles — per-particle squared L2 (MSE)
+                    diff = pos_out[probe_slice] - gt_positions[j, probe_slice]
+                    errs = np.sum(diff * diff, axis=-1)
                     case_errors.append(float(np.mean(errs)))
                     all_errors.extend(errs.tolist())
 
@@ -723,7 +729,7 @@ class DarkMatterEvaluator:
                     }
                 )
                 if verbose:
-                    print(f"  Case {i+1}: mean_probe_error = {mean_err:.4f}")
+                    print(f"  Case {i+1}: mean_probe_mse = {mean_err:.4f}")
 
             except Exception as e:
                 if verbose:
@@ -745,11 +751,11 @@ class DarkMatterEvaluator:
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
-        passed = mean_total < 0.5
+        passed = mean_total < 0.25
 
         if verbose:
-            print(f"\n  Mean position error (probes only): {mean_total:.4f}")
-            print(f"  Max  position error:               {max_total:.4f}")
+            print(f"\n  Mean probe MSE (probes only): {mean_total:.4f}")
+            print(f"  Max  probe MSE:               {max_total:.4f}")
             print(f"  Result: {'PASS' if passed else 'FAIL'}")
 
         return {
@@ -869,10 +875,8 @@ class EtherEvaluator:
                     pos_out = np.asarray(pos_out)  # (26, 2)
                     pred_traj.append(pos_out.tolist())
 
-                    errs = np.linalg.norm(
-                        pos_out[self.PROBE_SLICE] - gt_positions[j, self.PROBE_SLICE],
-                        axis=-1,
-                    )  # (5,)
+                    diff = pos_out[self.PROBE_SLICE] - gt_positions[j, self.PROBE_SLICE]
+                    errs = np.sum(diff * diff, axis=-1)  # squared L2 per probe (5,)
                     case_errors.append(float(np.mean(errs)))
                     all_errors.extend(errs.tolist())
 
@@ -888,7 +892,7 @@ class EtherEvaluator:
                     }
                 )
                 if verbose:
-                    print(f"  Case {i+1}: mean_probe_error = {mean_err:.4f}")
+                    print(f"  Case {i+1}: mean_probe_mse = {mean_err:.4f}")
 
             except Exception as e:
                 if verbose:
@@ -907,11 +911,11 @@ class EtherEvaluator:
 
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
-        passed = mean_total < 0.5
+        passed = mean_total < 0.25
 
         if verbose:
-            print(f"\n  Mean position error (probes only): {mean_total:.4f}")
-            print(f"  Max  position error:               {max_total:.4f}")
+            print(f"\n  Mean probe MSE (probes only): {mean_total:.4f}")
+            print(f"  Max  probe MSE:               {max_total:.4f}")
             print(f"  Result: {'PASS' if passed else 'FAIL'}")
 
         return {
@@ -1028,10 +1032,8 @@ class HubbleEvaluator:
                     pos_out = np.asarray(pos_out)  # (26, 2)
                     pred_traj.append(pos_out.tolist())
 
-                    errs = np.linalg.norm(
-                        pos_out[self.PROBE_SLICE] - gt_positions[j, self.PROBE_SLICE],
-                        axis=-1,
-                    )  # (5,)
+                    diff = pos_out[self.PROBE_SLICE] - gt_positions[j, self.PROBE_SLICE]
+                    errs = np.sum(diff * diff, axis=-1)  # squared L2 per probe (5,)
                     case_errors.append(float(np.mean(errs)))
                     all_errors.extend(errs.tolist())
 
@@ -1047,7 +1049,7 @@ class HubbleEvaluator:
                     }
                 )
                 if verbose:
-                    print(f"  Case {i+1}: mean_probe_error = {mean_err:.4f}")
+                    print(f"  Case {i+1}: mean_probe_mse = {mean_err:.4f}")
 
             except Exception as e:
                 if verbose:
@@ -1067,13 +1069,14 @@ class HubbleEvaluator:
         mean_total = float(np.mean(all_errors)) if all_errors else float("inf")
         max_total = float(np.max(all_errors)) if all_errors else float("inf")
         # Looser threshold than ether: outer probes outside r_crit accelerate
-        # rapidly, so absolute position errors grow large; 1.0 is calibrated
-        # to the typical scale of the t=10 escape distance.
+        # rapidly, so squared position errors grow large; 1.0 is the prior
+        # distance threshold squared (1.0² = 1.0). May need re-tuning under
+        # the new MSE metric since mean(||Δ||²) ≥ mean(||Δ||)² (Jensen).
         passed = mean_total < 1.0
 
         if verbose:
-            print(f"\n  Mean position error (probes only): {mean_total:.4f}")
-            print(f"  Max  position error:               {max_total:.4f}")
+            print(f"\n  Mean probe MSE (probes only): {mean_total:.4f}")
+            print(f"  Max  probe MSE:               {max_total:.4f}")
             print(f"  Result: {'PASS' if passed else 'FAIL'}")
 
         return {

@@ -158,6 +158,7 @@ class DiscoveryAgent:
         random_experiments: bool = False,
         random_generator: Optional[Callable[[], dict]] = None,
         trajectory_logger=None,
+        no_mse: bool = False,
     ):
         self.model = model
         self.executor = executor
@@ -175,6 +176,7 @@ class DiscoveryAgent:
         self.random_experiments = bool(random_experiments)
         self.random_generator = random_generator
         self.trajectory_logger = trajectory_logger
+        self.no_mse = bool(no_mse)
         if self.random_experiments and self.random_generator is None:
             raise ValueError(
                 "random_experiments=True requires a random_generator callable."
@@ -344,25 +346,63 @@ class DiscoveryAgent:
             # Check for experiment / fit requests
             experiment_block = _extract_tag(reply, "run_experiment")
             mse_fit_block = _extract_tag(reply, "run_mse_fit")
+
+            # In no-mse mode, reject any <run_mse_fit> the agent emits — the
+            # tool was never advertised, so this is the agent ignoring the
+            # protocol. Discard the tag, surface an error to the agent, and
+            # fall through to handle <run_experiment> / no-tag below.
+            if self.no_mse and mse_fit_block is not None:
+                if self.verbose:
+                    print(
+                        "[Warning] Agent emitted <run_mse_fit> but mid-round MSE "
+                        "fitting is disabled in this run. Rejecting."
+                    )
+                no_mse_msg = (
+                    "ERROR: <run_mse_fit> is not available in this run. "
+                    "Mid-round MSE fitting has been disabled — your "
+                    "candidate-law parameters will be fitted automatically "
+                    "by the evaluator at submission time via the "
+                    "fit_parameters() mechanism. Do not emit <run_mse_fit> "
+                    "again. Continue with <run_experiment> or <final_law>."
+                )
+                messages.append({"role": "user", "content": no_mse_msg})
+                round_entry["system_message"] = _join_sys(
+                    round_entry["system_message"], no_mse_msg
+                )
+                mse_fit_block = None
+
             if experiment_block is None and mse_fit_block is None:
                 if self.verbose:
                     print(
                         "[Warning] No recognized tag in response. Prompting agent to continue."
                     )
-                no_tag_msg = (
-                    "ERROR: No <run_experiment>, <run_mse_fit>, or <final_law> tag found "
-                    "in your response. You must respond with one of these XML tags — no "
-                    "code fences, no markdown, just the raw tag.\n\n"
-                    "Option 1 — run an experiment:\n" + self._experiment_format + "\n\n"
-                    "Option 2 — submit your final law:\n"
-                    "<final_law>\n" + self._law_stub + "</final_law>\n\n"
-                    "Option 3 — fit your candidate law's free parameters against the data "
-                    "you have collected so far (returns MSE before/after and fitted params):\n"
-                    "<run_mse_fit>\n" + self._law_stub + "</run_mse_fit>\n\n"
-                    "Respond with the XML tag NOW. No explanation before or after."
-                )
+                if self.no_mse:
+                    no_tag_msg = (
+                        "ERROR: No <run_experiment> or <final_law> tag found "
+                        "in your response. You must respond with one of these XML tags — no "
+                        "code fences, no markdown, just the raw tag.\n\n"
+                        "Option 1 — run an experiment:\n" + self._experiment_format + "\n\n"
+                        "Option 2 — submit your final law:\n"
+                        "<final_law>\n" + self._law_stub + "</final_law>\n\n"
+                        "Respond with the XML tag NOW. No explanation before or after."
+                    )
+                else:
+                    no_tag_msg = (
+                        "ERROR: No <run_experiment>, <run_mse_fit>, or <final_law> tag found "
+                        "in your response. You must respond with one of these XML tags — no "
+                        "code fences, no markdown, just the raw tag.\n\n"
+                        "Option 1 — run an experiment:\n" + self._experiment_format + "\n\n"
+                        "Option 2 — submit your final law:\n"
+                        "<final_law>\n" + self._law_stub + "</final_law>\n\n"
+                        "Option 3 — fit your candidate law's free parameters against the data "
+                        "you have collected so far (returns MSE before/after and fitted params):\n"
+                        "<run_mse_fit>\n" + self._law_stub + "</run_mse_fit>\n\n"
+                        "Respond with the XML tag NOW. No explanation before or after."
+                    )
                 round_entry["action"] = "no_tag"
-                round_entry["system_message"] = no_tag_msg
+                round_entry["system_message"] = _join_sys(
+                    round_entry["system_message"], no_tag_msg
+                )
                 self.conversation_log.append(round_entry)
                 messages.append({"role": "user", "content": no_tag_msg})
                 continue
@@ -585,7 +625,7 @@ class DiscoveryAgent:
         pins down the minimum integration timestep the agent is allowed to
         use inside `discovered_law`.
         """
-        mse_fit_available = self.trajectory_logger is not None
+        mse_fit_available = self.trajectory_logger is not None and not self.no_mse
         base = (
             "## RUN-SPECIFIC CONSTRAINTS (these override any conflicting numbers above)\n"
             f"- For this session you have EXACTLY {self.max_rounds} round(s) of "

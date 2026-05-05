@@ -44,7 +44,7 @@ You may submit several experiments per round in the JSON array. No comments insi
 ]
 ```
 
-Particle ordering is fixed: low indices = background population, the **last 5** = your probes. Consult the mission description for the exact split (e.g. dark_matter has 20+5; three_species has 30+5).
+Particle ordering is fixed: low indices = background population, the **last 5** = your probes. Consult the mission description for the exact split.
 
 ### `discovered_law` Signature
 
