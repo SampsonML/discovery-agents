@@ -12,7 +12,7 @@
 
 # ---------------
 # name of the run
-name: production_run_baseline
+name: production_run
 
 # -----------------------------------------
 # models to test on (will run sequentially)
@@ -21,6 +21,7 @@ models:
   - claude-opus-4-7
   - claude-sonnet-4-6
   - claude-haiku-4-5
+  - azure/gpt-5.5
   - azure/gpt-5.4
   - together/Qwen/Qwen3.5-397B-A17B
   - together/Qwen/Qwen3-235B-A22B-Instruct-2507-tput
@@ -47,19 +48,9 @@ noise_std: 0.075
 # --------------------
 # which physics worlds
 worlds:
-  - gravity
-  - yukawa
-  - fractional
-  - dark_matter 
-  - three_species
-  - ether
-  - hubble
-  - coulomb_easy 
-  - coulumb_hard
-  - oscillator 
-  - extra_dimension
+  - coulomb_hard
 
 # how many rng trials per run
-seeds: [0] # lindsay do [3, 4]
+seeds: [0, 1, 2] 
 
 
