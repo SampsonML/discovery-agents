@@ -88,6 +88,27 @@ _LOSS_FNS: dict[str, Callable] = {
 }
 
 
+def redact_world_leak(msg: str, csv_path: Optional[os.PathLike | str], world: str) -> str:
+    """Strip world-name and trajectory-CSV path substrings from `msg`.
+
+    Why: error strings are echoed back to the agent inside <mse_fit_output>;
+    the CSV is named results/trajectories/<world>.csv, so any raw exception
+    message that quotes the path (e.g. pandas FileNotFoundError) hands the
+    agent the answer it's trying to discover.
+    """
+    s = str(msg)
+    needles: list[str] = []
+    if csv_path is not None:
+        p = Path(csv_path)
+        needles.extend([str(p), str(p.resolve()), p.name])
+    if world:
+        needles.append(world)
+    for needle in needles:
+        if needle:
+            s = s.replace(needle, "<redacted>")
+    return s
+
+
 def fit_law(
     law_source: str,
     world: str,
@@ -132,16 +153,23 @@ def fit_law(
 
     csv_path = Path(csv_path) if csv_path else default_csv_path(world)
     if not csv_path.exists():
-        result["error"] = f"trajectory CSV not found: {csv_path}"
+        result["error"] = (
+            "trajectory CSV not found for this run; run at least one "
+            "successful <run_experiment> first"
+        )
         return result
 
     try:
         experiments = load_trajectories(csv_path, run_id=run_id)
     except Exception as e:
-        result["error"] = f"failed to load CSV: {e}"
+        result["error"] = (
+            f"failed to load training data: {redact_world_leak(e, csv_path, world)}"
+        )
         return result
     if not experiments:
-        result["error"] = f"no training trajectories for run_id={run_id} in {csv_path}"
+        result["error"] = (
+            f"no training trajectories logged yet for run_id={run_id}"
+        )
         return result
 
     try:

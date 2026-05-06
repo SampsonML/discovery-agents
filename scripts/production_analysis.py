@@ -31,9 +31,19 @@ _BOOTSTRAP_SEED = 0  # fixed so summary.txt is reproducible across re-aggregatio
 
 # Errors aggregate as geometric means; values below this are dropped (log undefined).
 _GEOM_MIN = 1e-14
-# A (model, world) pair "passes" when these are both met across its seeds.
-_PASS_ERR_THRESHOLD = 0.5     # geom. mean of mean_pos_error must be < this
-_PASS_SCORE_THRESHOLD = 0.7   # arithmetic mean of explanation score must be >= this
+
+# A trial passes iff its (per-world variance-normalized) MSE is below
+# _PASS_ERR_THRESHOLD AND its explanation score is above _PASS_SCORE_THRESHOLD.
+# Per-world variance is computed once from `_VARIANCE_REF_DIR` (pooled GT
+# trajectory variance over all (T, particle, coord) entries) and shared across
+# every analysis dir.
+_PASS_ERR_THRESHOLD = 0.10    # mean_pos_error / Var(GT_world) must be < this
+_PASS_SCORE_THRESHOLD = 0.7   # explanation score must be >= this
+_VARIANCE_REF_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "results" / "yml_bench" / "production_r4"
+)
+_WORLD_VARS_CACHE: dict[str, float] | None = None
 
 # Per-world pass thresholds: a world is "passed at k" iff at least one of the
 # first k seeds (seed indices 0..k-1) achieved a trial-pass. A missing seed in
@@ -133,13 +143,22 @@ def aggregate(results_dir: Path, analysis_dir: Path) -> Path:
 
 
 def _per_model_pooled(by_trial):
-    """Pool every trial equally; return {model: (errs, scores)} lists."""
+    """Pool every trial equally; return {model: (errs, scores)} lists.
+
+    Errs are divided by the per-world GT variance so the pooled geometric mean
+    is comparable across worlds with different natural error scales.
+    """
+    world_vars = _world_vars()
     pooled: dict[str, tuple[list[float], list[float]]] = {}
-    for (model, _world), values in by_trial.items():
+    for (model, world), values in by_trial.items():
         errs, scores = pooled.setdefault(model, ([], []))
+        v = world_vars.get(world)
         for e, s in values:
             if isinstance(e, (int, float)) and math.isfinite(e):
-                errs.append(float(e))
+                ev = float(e)
+                if v is not None and v > 0:
+                    ev = ev / v
+                errs.append(ev)
             if isinstance(s, (int, float)) and math.isfinite(s):
                 scores.append(float(s))
     return pooled
@@ -160,7 +179,7 @@ def _write_per_model_summary(by_trial, by_seed, analysis_dir: Path, title: str) 
         for k in _PASS_K_VALUES
     }
     k_col_w = max(6, len(f"{n_worlds}/{n_worlds}") + 2)
-    e_col_w = max(14, len(f"{n_worlds}.00±0.00/{n_worlds}") + 1)
+    e_col_w = max(14, len("100.00±100.00%") + 1)
     k_headers = " ".join(f"{f'@k={k}':>{k_col_w}}" for k in _PASS_K_VALUES)
     e_headers = " ".join(f"{f'E@k={k}':>{e_col_w}}" for k in _PASS_K_VALUES)
     width = 124 + (k_col_w + 1) * len(_PASS_K_VALUES) + (e_col_w + 1) * len(_PASS_K_VALUES)
@@ -169,7 +188,7 @@ def _write_per_model_summary(by_trial, by_seed, analysis_dir: Path, title: str) 
     lines.append("=" * width)
     header = (
         f"{'model':<50} {'n_trials':>9} {'passed':>10} "
-        f"{'expl_score [95% CI]':>22} {'geom_pos_err [95% CI]':>26} "
+        f"{'expl_score [95% CI]':>22} {'norm_MSE [95% CI]':>26} "
         f"{k_headers} {e_headers}"
     )
     lines.append(header)
@@ -183,7 +202,7 @@ def _write_per_model_summary(by_trial, by_seed, analysis_dir: Path, title: str) 
             for k in _PASS_K_VALUES
         )
         e_cells = " ".join(
-            f"{f'{expected_at_k[k].get(model, (0.0, 0.0))[0]:.2f}±{expected_at_k[k].get(model, (0.0, 0.0))[1]:.2f}/{n_worlds}':>{e_col_w}}"
+            f"{f'{expected_at_k[k].get(model, (0.0, 0.0))[0] * 100.0 / n_worlds:.2f}±{expected_at_k[k].get(model, (0.0, 0.0))[1] * 100.0 / n_worlds:.2f}%':>{e_col_w}}"
             for k in _PASS_K_VALUES
         )
         lines.append(
@@ -194,8 +213,10 @@ def _write_per_model_summary(by_trial, by_seed, analysis_dir: Path, title: str) 
     lines.append("-" * width)
     lines.append("Pooled across all worlds and seeds (every trial counts equally).")
     lines.append(
-        f"passed: number of trials (summed over worlds & seeds) with mean_pos_error < "
-        f"{_PASS_ERR_THRESHOLD} AND explanation_score >= {_PASS_SCORE_THRESHOLD}."
+        f"passed: number of trials (summed over worlds & seeds) with "
+        f"mean_pos_error / Var(GT_world) < {_PASS_ERR_THRESHOLD} "
+        f"AND explanation_score >= {_PASS_SCORE_THRESHOLD}. "
+        f"Per-world variance is computed from {_VARIANCE_REF_DIR.name}."
     )
     lines.append(
         f"@k=K: number of worlds (out of {n_worlds}) where at least one of seeds "
@@ -203,14 +224,16 @@ def _write_per_model_summary(by_trial, by_seed, analysis_dir: Path, title: str) 
         "for their slot. Monotonically non-decreasing in K."
     )
     lines.append(
-        f"E@k=K: expected number of worlds passed when K seed positions are sampled "
+        f"E@k=K: expected percentage of worlds passed when K seed positions are sampled "
         f"uniformly without replacement from a {_SEED_POOL_SIZE}-seed pool, averaged "
         f"over {_EXPECTED_PASSED_SAMPLES} Monte Carlo draws (RNG seed={_BOOTSTRAP_SEED}). "
-        "Format: mean±SEM/N, where SEM is the standard error of the mean across draws."
+        f"Format: mean%±SEM%, scaled by 100/{n_worlds} from the raw count; SEM is the "
+        "standard error of the mean across draws."
     )
     lines.append(
-        "geom_pos_err: geometric mean of mean_pos_error "
-        f"(values < {_GEOM_MIN:.0e} dropped); lower is better."
+        "norm_MSE: geometric mean of mean_pos_error / Var(GT_world) "
+        f"(values < {_GEOM_MIN:.0e} dropped); lower is better. "
+        f"Per-world variance is computed from {_VARIANCE_REF_DIR.name}."
     )
     lines.append(
         f"Format: point estimate [2.5%, 97.5%] from {_BOOTSTRAP_RESAMPLES} bootstrap "
@@ -221,21 +244,66 @@ def _write_per_model_summary(by_trial, by_seed, analysis_dir: Path, title: str) 
     return out_path
 
 
+_FAMILY_CMAPS = {
+    "claude": "Blues",
+    "gpt": "Reds",
+    "qwen": "Purples",
+    "deepseek": "Greens",
+}
+
+
+def _model_family(model: str) -> str:
+    norm = model.lower()
+    for fam in ("claude", "gpt", "qwen", "deepseek"):
+        if fam in norm:
+            return fam
+    return "other"
+
+
 def _model_color_map(models, plt):
     """Stable {model: rgba} color mapping shared across every plot.
 
-    Indexes into `tab10` by the canonical sort order, so the same model gets the
-    same color in every figure regardless of which subset is currently plotted.
-    Qwen 3.2 (Qwen3-235B) is forced to black to disambiguate it from Opus.
+    Each model family (claude/gpt/qwen/deepseek) gets its own sequential
+    colormap; models within a family are sampled at distinct lightness levels
+    in canonical sort order. Anything outside the known families falls back
+    to `tab10`.
     """
-    cmap = plt.get_cmap("tab10")
-    colors = {
-        m: cmap(i % 10) for i, m in enumerate(sorted(models, key=_model_sort_key))
-    }
-    for m in colors:
-        if "qwen3-235b" in m.lower().replace(".", "-"):
-            colors[m] = (0.0, 0.0, 0.0, 1.0)
+    by_family: dict[str, list[str]] = {}
+    for m in sorted(models, key=_model_sort_key):
+        by_family.setdefault(_model_family(m), []).append(m)
+
+    colors: dict[str, tuple] = {}
+    fallback = plt.get_cmap("tab10")
+    fallback_idx = 0
+    for fam, fam_models in by_family.items():
+        if fam == "other":
+            for m in fam_models:
+                colors[m] = fallback(fallback_idx % 10)
+                fallback_idx += 1
+            continue
+        cmap = plt.get_cmap(_FAMILY_CMAPS[fam])
+        n = len(fam_models)
+        if n == 1:
+            stops = [0.75]
+        else:
+            stops = [0.95 - (0.95 - 0.30) * i / (n - 1) for i in range(n)]
+        for m, s in zip(fam_models, stops):
+            colors[m] = cmap(s)
     return colors
+
+
+def _model_marker(model: str) -> str:
+    """Matplotlib marker keyed by model family (claude/gpt/qwen/deepseek)."""
+    norm = model.lower()
+    if "claude" in norm:
+        return "o"
+    if "gpt" in norm:
+        return "^"
+    if "qwen" in norm:
+        return "s"
+    if "deepseek" in norm:
+        return "D"
+    return "o"
 
 
 def _world_label(world: str) -> str:
@@ -275,7 +343,7 @@ _MODEL_RELEASE_DATES = {
     "together/Qwen/Qwen3.5-397B-A17B": "2026-02-16",
     "together/Qwen/Qwen3-235B-A22B-Instruct-2507-tput": "2025-07-21",
     "together/deepseek-ai/DeepSeek-V3.1": "2025-08-21",
-    "together/deepseek-ai/DeepSeek-R1": "2025-01-20",
+    "together/deepseek-ai/DeepSeek-R1": "2025-05-28",
     "together/openai/gpt-oss-120b": "2025-08-05",
     "together/openai/gpt-oss-20b": "2025-08-05",
 }
@@ -308,9 +376,13 @@ def _model_sort_key(model: str):
 
 
 def _trial_values(by_trial, model, world):
+    """Errs are divided by per-world GT variance so values are normalized MSE."""
     values = by_trial.get((model, world), [])
+    v = _world_vars().get(world)
     errs = [
-        float(e) for e, _ in values if isinstance(e, (int, float)) and math.isfinite(e)
+        (float(e) / v if v is not None and v > 0 else float(e))
+        for e, _ in values
+        if isinstance(e, (int, float)) and math.isfinite(e)
     ]
     scores = [
         float(s) for _, s in values if isinstance(s, (int, float)) and math.isfinite(s)
@@ -348,23 +420,85 @@ def _bootstrap_ci_geom(values):
     return (m, m - lo, hi - m)
 
 
-def _trial_passes(err, score) -> bool:
-    """A single trial passes iff mean_pos_error < threshold AND explanation_score >= threshold."""
+def _compute_world_vars(reference_dir: Path) -> dict[str, float]:
+    """Pooled variance of GT trajectories per world, computed from JSON results.
+
+    Walks `reference_dir` for trial JSONs, gathers `evaluation.trajectories[*].gt`
+    arrays per world, flattens, and returns the population variance pooled over
+    all (time, particle, coord) entries.
+    """
+    pooled: dict[str, list[float]] = {}
+    if not reference_dir.is_dir():
+        return {}
+    for json_path in sorted(reference_dir.rglob("*.json")):
+        if json_path.name == "config.json":
+            continue
+        try:
+            with open(json_path) as f:
+                d = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        world = d.get("world")
+        ev = d.get("evaluation") or {}
+        trajs = ev.get("trajectories") or []
+        if not world or not trajs:
+            continue
+        for t in trajs:
+            gt = t.get("gt")
+            if gt is None:
+                continue
+            arr = np.asarray(gt, dtype=float).ravel()
+            if arr.size == 0 or not np.all(np.isfinite(arr)):
+                continue
+            pooled.setdefault(world, []).extend(arr.tolist())
+    return {w: float(np.var(np.asarray(v))) for w, v in pooled.items() if v}
+
+
+def _world_vars() -> dict[str, float]:
+    global _WORLD_VARS_CACHE
+    if _WORLD_VARS_CACHE is None:
+        _WORLD_VARS_CACHE = _compute_world_vars(_VARIANCE_REF_DIR)
+    return _WORLD_VARS_CACHE
+
+
+def _pass_at_k(n: int, c: int, k: int) -> float:
+    """Unbiased estimator of pass@k given n trials with c passes (Chen et al. 2021).
+
+    Returns the probability that at least one of k trials drawn without
+    replacement from the n observed trials passes. NaN if n < k.
+    """
+    if n < k:
+        return float("nan")
+    if n - c < k:
+        return 1.0
+    return 1.0 - float(np.prod(1.0 - k / np.arange(n - c + 1, n + 1)))
+
+
+def _trial_passes(err, score, world: str | None) -> bool:
+    """A single trial passes iff (mean_pos_error / Var(GT_world)) < err threshold
+    AND explanation_score >= score threshold. Falls back to raw err if world
+    variance is unavailable.
+    """
     if not isinstance(err, (int, float)) or not math.isfinite(err):
         return False
     if not isinstance(score, (int, float)) or not math.isfinite(score):
         return False
-    return float(err) < _PASS_ERR_THRESHOLD and float(score) >= _PASS_SCORE_THRESHOLD
+    err_value = float(err)
+    if world is not None:
+        v = _world_vars().get(world)
+        if v is not None and v > 0:
+            err_value = err_value / v
+    return err_value < _PASS_ERR_THRESHOLD and float(score) >= _PASS_SCORE_THRESHOLD
 
 
 def _passed_per_model(by_trial, models, worlds) -> dict[str, int]:
     """Sum of trial passes across every (world, seed) for each model."""
     counts = {m: 0 for m in models}
-    for (m, _w), values in by_trial.items():
+    for (m, w), values in by_trial.items():
         if m not in counts:
             continue
         for err, score in values:
-            if _trial_passes(err, score):
+            if _trial_passes(err, score, w):
                 counts[m] += 1
     return counts
 
@@ -397,7 +531,7 @@ def _expected_worlds_passed_at_k(
         for w in worlds:
             seed_results = by_seed.get((m, w), {})
             passes = np.array([
-                _trial_passes(*seed_results.get(s, (None, None)))
+                _trial_passes(*seed_results.get(s, (None, None)), w)
                 for s in range(pool_size)
             ])
             if not passes.any():
@@ -438,7 +572,7 @@ def _expected_pass_rate_per_world_at_k(
         for w in worlds:
             seed_results = by_seed.get((m, w), {})
             passes = np.array([
-                _trial_passes(*seed_results.get(s, (None, None)))
+                _trial_passes(*seed_results.get(s, (None, None)), w)
                 for s in range(pool_size)
             ])
             if not passes.any():
@@ -469,7 +603,7 @@ def _worlds_passed_at_k(by_seed, models, worlds, k: int) -> dict[str, int]:
             seed_results = by_seed.get((m, w), {})
             for seed in range(k):
                 err, score = seed_results.get(seed, (None, None))
-                if _trial_passes(err, score):
+                if _trial_passes(err, score, w):
                     counts[m] += 1
                     break
     return counts
@@ -531,10 +665,28 @@ def _make_plots(by_trial, by_seed, analysis_dir: Path, title: str) -> None:
     _make_pareto_expected_release_combo_plot(
         by_trial, by_seed, models, worlds, analysis_dir, title, plt, k=3
     )
+    _make_pareto_expected_release_combo_plot(
+        by_trial, by_seed, models, worlds, analysis_dir, title, plt, k=3,
+        as_percent=True, out_stem="moneyplot2",
+    )
+    for _k in _PASS_K_VALUES:
+        _make_expected_passed_radar_plot(
+            by_seed, by_trial, models, worlds, analysis_dir, title, plt, _k
+        )
+    _make_expected_passed_radar_combo(
+        by_seed, by_trial, models, worlds, analysis_dir, title, plt, ks=(1, 3, 5)
+    )
+    _make_score_radar_plot(by_trial, models, worlds, analysis_dir, title, plt)
+    _make_model_world_heatmap(
+        by_seed, by_trial, models, worlds, analysis_dir, title, plt, k=3
+    )
+    _make_model_agreement_jaccard(
+        by_seed, models, worlds, analysis_dir, title, plt, k=3
+    )
 
 
 def _make_per_model_plot(by_trial, models, analysis_dir, title, plt) -> None:
-    """One bar per model in two side-by-side panels: expl. score and MPE."""
+    """One bar per model in two side-by-side panels: expl. score and Normalized MSE."""
     pooled = _per_model_pooled(by_trial)
     n_models = len(models)
     if n_models == 0:
@@ -570,8 +722,8 @@ def _make_per_model_plot(by_trial, models, analysis_dir, title, plt) -> None:
         ),
         (
             ax_err,
-            "Mean position error (geom. mean, pooled across worlds)",
-            "geom. mean error ↓",
+            "Normalized MSE (geom. mean, pooled across worlds)",
+            "Normalized MSE (geom. mean) ↓",
         ),
     ]:
         ax.set_xticks(x)
@@ -728,7 +880,7 @@ def _make_worlds_expected_passed_at_k_scatter(
 
     ax.set_xticks(xs)
     ax.set_xlabel("k", fontsize=18)
-    ax.set_ylabel(f"expected passed @k (out of {n_worlds}) ↑", fontsize=18)
+    ax.set_ylabel(f"Expected passed @k (out of {n_worlds}) ↑", fontsize=18)
     ax.set_ylim(-0.5, n_worlds + 0.5)
     ax.tick_params(axis="both", labelsize=13)
     ax.grid(axis="y", linestyle=":", alpha=0.4)
@@ -766,7 +918,7 @@ def _make_worlds_expected_passed_at_k_scatter(
 def _make_passed_plot(
     by_trial, by_seed, models, worlds, analysis_dir, title, plt
 ) -> None:
-    """3-row plot: E[@k=3], explanation score, MPE — model on x-axis."""
+    """3-row plot: E[@k=3], explanation score, Normalized MSE — model on x-axis."""
     n_models = len(models)
     n_worlds = len(worlds)
     if n_models == 0:
@@ -812,7 +964,7 @@ def _make_passed_plot(
     ax_score.set_ylim(0, 1.05)
 
     ax_err.bar(x, err_means, yerr=[err_lo, err_hi], color=colors, capsize=3)
-    ax_err.set_ylabel("MPE (geom. mean) ↓", **ylabel_kw)
+    ax_err.set_ylabel("Normalized MSE (geom. mean) ↓", **ylabel_kw)
     ax_err.set_yscale("log")
 
     ax_err.set_xticks(x)
@@ -872,7 +1024,7 @@ def _make_bar_plot(by_trial, models, worlds, analysis_dir, title, plt) -> None:
 
     for ax, ax_title, ylabel in [
         (ax_score, "Explanation score (higher = better)", "score [0, 1] ↑"),
-        (ax_err, "Mean position error (geom. mean, lower = better)", "geom. mean error ↓"),
+        (ax_err, "Normalized MSE (geom. mean, lower = better)", "Normalized MSE (geom. mean) ↓"),
     ]:
         ax.set_xticks(x)
         ax.set_ylabel(ylabel)
@@ -940,7 +1092,7 @@ def _make_strip_plot(by_trial, models, worlds, analysis_dir, title, plt) -> None
 
     for ax, ax_title, ylabel in [
         (ax_score, "Explanation score per run", "score [0, 1] ↑"),
-        (ax_err, "Mean position error per run", "error ↓"),
+        (ax_err, "Normalized MSE per run", "Normalized MSE ↓"),
     ]:
         ax.set_xticks(x)
         ax.set_xticklabels([_world_label(w) for w in worlds], rotation=20, ha="right")
@@ -1008,7 +1160,7 @@ def _make_pareto_plot(by_trial, models, worlds, analysis_dir, title, plt) -> Non
         return
 
     ax.set_xscale("log")
-    ax.set_xlabel("MPE ↓", fontsize=18)
+    ax.set_xlabel("Normalized MSE ↓", fontsize=18)
     ax.set_ylabel("Evaluation score (0-1) ↑", fontsize=18)
     ax.tick_params(axis="both", labelsize=13)
     ax.set_ylim(-0.05, 1.05)
@@ -1054,7 +1206,7 @@ def _make_pareto_expected_combo_plot(
 
     fig, (ax_pareto, ax_ek) = plt.subplots(1, 2, figsize=(15, 6))
 
-    # Left: pareto (geom-mean MPE, mean explanation score) per model.
+    # Left: pareto (geom-mean Normalized MSE, mean explanation score) per model.
     plotted_models = []
     for model in models:
         errs, scores = pooled.get(model, ([], []))
@@ -1084,7 +1236,7 @@ def _make_pareto_expected_combo_plot(
         return
 
     ax_pareto.set_xscale("log")
-    ax_pareto.set_xlabel("MPE ↓", fontsize=18)
+    ax_pareto.set_xlabel("Normalized MSE ↓", fontsize=18)
     ax_pareto.set_ylabel("Evaluation score (0-1) ↑", fontsize=18)
     ax_pareto.tick_params(axis="both", labelsize=13)
     ax_pareto.set_ylim(-0.05, 1.05)
@@ -1109,7 +1261,7 @@ def _make_pareto_expected_combo_plot(
 
     ax_ek.set_xticks(xs)
     ax_ek.set_xlabel("k", fontsize=18)
-    ax_ek.set_ylabel(f"expected passed @k (out of {n_worlds}) ↑", fontsize=18)
+    ax_ek.set_ylabel(f"Expected passed @k (out of {n_worlds}) ↑", fontsize=18)
     ax_ek.set_ylim(-0.5, n_worlds + 0.5)
     ax_ek.tick_params(axis="both", labelsize=13)
     ax_ek.grid(axis="y", linestyle=":", alpha=0.4)
@@ -1177,7 +1329,7 @@ def _make_expected_passed_vs_release_date_plot(
         for w in worlds:
             seed_results = by_seed.get((m, w), {})
             passes = np.array([
-                _trial_passes(*seed_results.get(s, (None, None)))
+                _trial_passes(*seed_results.get(s, (None, None)), w)
                 for s in range(_SEED_POOL_SIZE)
             ])
             if not passes.any():
@@ -1217,7 +1369,7 @@ def _make_expected_passed_vs_release_date_plot(
         plotted_models.append(m)
 
     ax.set_xlabel("Model release date", fontsize=18)
-    ax.set_ylabel(f"expected passed @k={k} (out of {n_worlds}) ↑", fontsize=18)
+    ax.set_ylabel(f"Expected passed @k={k} (out of {n_worlds}) ↑", fontsize=18)
     ax.tick_params(axis="both", labelsize=12)
     ax.set_ylim(-0.5, n_worlds + 0.5)
     ax.grid(axis="y", linestyle=":", alpha=0.4)
@@ -1256,7 +1408,8 @@ def _make_expected_passed_vs_release_date_plot(
 
 
 def _make_pareto_expected_release_combo_plot(
-    by_trial, by_seed, models, worlds, analysis_dir, title, plt, k: int = 3
+    by_trial, by_seed, models, worlds, analysis_dir, title, plt, k: int = 3,
+    as_percent: bool = False, out_stem: str = "money",
 ) -> None:
     """Three-panel combo: pareto | expected_passed@k vs k | expected@k vs release date.
 
@@ -1275,7 +1428,7 @@ def _make_pareto_expected_release_combo_plot(
 
     fig, (ax_pareto, ax_ek, ax_date) = plt.subplots(1, 3, figsize=(22, 6.5))
 
-    # Panel 1: pareto (geom-mean MPE, mean explanation score) per model.
+    # Panel 1: pareto (geom-mean Normalized MSE, mean explanation score) per model.
     plotted_models: list[str] = []
     for model in models:
         errs, scores = pooled.get(model, ([], []))
@@ -1289,13 +1442,13 @@ def _make_pareto_expected_release_combo_plot(
             x_mean, y_mean,
             xerr=[[x_lo], [x_hi]],
             yerr=[[y_lo], [y_hi]],
-            fmt="o",
+            fmt=_model_marker(model),
             color=model_colors[model],
             ecolor=model_colors[model],
             elinewidth=1.2,
             capsize=3,
-            markersize=10,
-            markeredgecolor="white",
+            markersize=17,
+            markeredgecolor="k",
             markeredgewidth=0.7,
         )
         plotted_models.append(model)
@@ -1305,10 +1458,10 @@ def _make_pareto_expected_release_combo_plot(
         return
 
     ax_pareto.set_xscale("log")
-    ax_pareto.set_xlabel("MPE ↓", fontsize=20)
-    ax_pareto.set_ylabel("Evaluation score (0-1) ↑", fontsize=20)
-    ax_pareto.tick_params(axis="both", labelsize=13)
-    ax_pareto.set_ylim(-0.05, 1.05)
+    ax_pareto.set_xlabel("Normalized MSE ↓", fontsize=29)
+    ax_pareto.set_ylabel("Evaluation score ↑", fontsize=29)
+    ax_pareto.tick_params(axis="both", labelsize=19)
+    ax_pareto.set_ylim(0.07, 0.77)
 
     # Panel 2: expected worlds passed @k vs k, ±SEM error bars.
     expected_at_k = {
@@ -1316,23 +1469,27 @@ def _make_pareto_expected_release_combo_plot(
         for kk in _PASS_K_VALUES
     }
     xs = list(_PASS_K_VALUES)
+    scale = 100.0 / n_worlds if as_percent else 1.0
     for model in models:
-        means = [expected_at_k[kk].get(model, (0.0, 0.0))[0] for kk in xs]
-        sems = [expected_at_k[kk].get(model, (0.0, 0.0))[1] for kk in xs]
+        means = [expected_at_k[kk].get(model, (0.0, 0.0))[0] * scale for kk in xs]
+        sems = [expected_at_k[kk].get(model, (0.0, 0.0))[1] * scale for kk in xs]
         ax_ek.errorbar(
             xs, means, yerr=sems,
-            marker="o", color=model_colors[model],
+            marker=_model_marker(model), color=model_colors[model],
             ecolor=model_colors[model],
-            linewidth=1.8, markersize=10,
-            markeredgecolor="white", markeredgewidth=0.7,
+            linewidth=1.8, markersize=17,
+            markeredgecolor="k", markeredgewidth=0.7,
             capsize=3, elinewidth=1.0,
         )
 
     ax_ek.set_xticks(xs)
-    ax_ek.set_xlabel("k", fontsize=20)
-    ax_ek.set_ylabel(f"Expected passed @k (out of {n_worlds}) ↑", fontsize=20)
-    ax_ek.set_ylim(-0.5, n_worlds + 0.5)
-    ax_ek.tick_params(axis="both", labelsize=13)
+    ax_ek.set_xlabel("k", fontsize=29)
+    ax_ek.set_ylabel(
+        "Expected passed @k (%) ↑" if as_percent else "Expected passed @k ↑",
+        fontsize=29,
+    )
+    ax_ek.set_ylim(-0.5 * scale, 6.5 * scale)
+    ax_ek.tick_params(axis="both", labelsize=19)
     ax_ek.grid(axis="y", linestyle=":", alpha=0.4)
 
     # Panel 3: expected worlds passed @k vs release date, ±std error bars.
@@ -1347,7 +1504,7 @@ def _make_pareto_expected_release_combo_plot(
         for w in worlds:
             seed_results = by_seed.get((m, w), {})
             passes = np.array([
-                _trial_passes(*seed_results.get(s, (None, None)))
+                _trial_passes(*seed_results.get(s, (None, None)), w)
                 for s in range(_SEED_POOL_SIZE)
             ])
             if not passes.any():
@@ -1370,17 +1527,20 @@ def _make_pareto_expected_release_combo_plot(
             continue
         mean, std = mean_std_by_model.get(m, (0.0, 0.0))
         ax_date.errorbar(
-            d, mean, yerr=std,
-            marker="o", color=model_colors[m], ecolor=model_colors[m],
-            markersize=11, capsize=4, elinewidth=1.4,
-            markeredgecolor="white", markeredgewidth=0.7,
+            d, mean * scale, yerr=std * scale,
+            marker=_model_marker(m), color=model_colors[m], ecolor=model_colors[m],
+            markersize=17, capsize=4, elinewidth=1.4,
+            markeredgecolor="k", markeredgewidth=0.7,
             linestyle="",
         )
 
-    ax_date.set_xlabel("Model release date", fontsize=20)
-    ax_date.set_ylabel(f"Expected passed @k={k} (out of {n_worlds}) ↑", fontsize=20)
-    ax_date.tick_params(axis="both", labelsize=13)
-    ax_date.set_ylim(-0.5, n_worlds + 0.5)
+    ax_date.set_xlabel("Model release date", fontsize=29)
+    ax_date.set_ylabel(
+        f"Expected passed @{k} (%) ↑" if as_percent else f"Expected passed @{k} ↑",
+        fontsize=29,
+    )
+    ax_date.tick_params(axis="both", labelsize=19)
+    ax_date.set_ylim(-0.5 * scale, 6.5 * scale)
     ax_date.grid(axis="y", linestyle=":", alpha=0.4)
     ax_date.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
     ax_date.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
@@ -1391,9 +1551,9 @@ def _make_pareto_expected_release_combo_plot(
     handles = [
         Line2D(
             [0], [0],
-            marker="o", color="w",
-            markerfacecolor=model_colors[m], markeredgecolor="white",
-            markersize=11, linestyle="", label=_short(m),
+            marker=_model_marker(m), color="w",
+            markerfacecolor=model_colors[m], markeredgecolor="k",
+            markersize=17, linestyle="", label=_short(m),
         )
         for m in sorted(plotted_models, key=_model_sort_key)
     ]
@@ -1404,23 +1564,23 @@ def _make_pareto_expected_release_combo_plot(
         ncol=min(len(handles), 6),
         frameon=False,
         borderaxespad=0,
-        fontsize=19,
+        fontsize=22,
     )
 
-    fig.tight_layout()
+    fig.tight_layout(w_pad=4.0)
     fig.savefig(
-        analysis_dir / "pareto_expected_release_combo.png",
+        analysis_dir / f"{out_stem}.png",
         dpi=150, bbox_inches="tight",
     )
     fig.savefig(
-        analysis_dir / "pareto_expected_release_combo.pdf",
+        analysis_dir / f"{out_stem}.pdf",
         bbox_inches="tight",
     )
     plt.close(fig)
 
 
 def _make_noise_ablation_plot(by_noise, analysis_dir, title) -> None:
-    """For each (model, world), score & MPE vs σ — one line per (model, world).
+    """For each (model, world), score & Normalized MSE vs σ — one line per (model, world).
 
     Skipped unless ≥2 distinct noise levels were found across the run.
     """
@@ -1457,27 +1617,31 @@ def _make_noise_ablation_plot(by_noise, analysis_dir, title) -> None:
     for model in models:
         for world in worlds:
             xs = []
-            pass_counts = []
+            pass_at_3 = []
             score_means, score_lo, score_hi = [], [], []
             err_means, err_lo, err_hi = [], [], []
+            v = _world_vars().get(world)
             for sigma in noise_levels:
                 values = by_noise.get((model, world, sigma), [])
+                if not values:
+                    continue
                 scores = [
                     float(s) for _e, s in values
                     if isinstance(s, (int, float)) and math.isfinite(s)
                 ]
                 errs = [
-                    float(e) for e, _s in values
+                    (float(e) / v if v is not None and v > 0 else float(e))
+                    for e, _s in values
                     if isinstance(e, (int, float)) and math.isfinite(e)
                 ]
                 s_ci = _bootstrap_ci(scores)
                 e_ci = _bootstrap_ci_geom(errs)
-                if s_ci is None and e_ci is None:
-                    continue
                 xs.append(sigma)
-                pass_counts.append(
-                    sum(1 for err, score in values if _trial_passes(err, score))
+                n_trials = len(values)
+                n_pass = sum(
+                    1 for err, score in values if _trial_passes(err, score, world)
                 )
+                pass_at_3.append(_pass_at_k(n_trials, n_pass, 3))
                 if s_ci is not None:
                     score_means.append(s_ci[0])
                     score_lo.append(s_ci[1])
@@ -1502,7 +1666,7 @@ def _make_noise_ablation_plot(by_noise, analysis_dir, title) -> None:
             )
             color = model_colors[model]
             ax_pass.plot(
-                xs, pass_counts,
+                xs, pass_at_3,
                 marker="o", color=color,
                 linewidth=1.8, markersize=8,
                 markeredgecolor="white", markeredgewidth=0.6,
@@ -1522,7 +1686,8 @@ def _make_noise_ablation_plot(by_noise, analysis_dir, title) -> None:
             )
 
     ax_pass.set_xlabel(r"observation noise $\sigma$", fontsize=20)
-    ax_pass.set_ylabel("worlds passed ↑", fontsize=20)
+    ax_pass.set_ylabel("Expected passed@3 ↑", fontsize=20)
+    ax_pass.set_ylim(-0.05, 1.05)
     ax_pass.tick_params(axis="both", labelsize=14)
 
     ax_score.set_xlabel(r"observation noise $\sigma$", fontsize=20)
@@ -1531,7 +1696,7 @@ def _make_noise_ablation_plot(by_noise, analysis_dir, title) -> None:
     ax_score.tick_params(axis="both", labelsize=14)
 
     ax_err.set_xlabel(r"observation noise $\sigma$", fontsize=20)
-    ax_err.set_ylabel("MPE (geom. mean) ↓", fontsize=20)
+    ax_err.set_ylabel("Normalized MSE (geom. mean) ↓", fontsize=20)
     ax_err.set_yscale("log")
     ax_err.tick_params(axis="both", labelsize=14)
 
@@ -1553,15 +1718,23 @@ def _make_noise_ablation_plot(by_noise, analysis_dir, title) -> None:
 
 
 def _world_score_pools(by_trial, worlds):
-    """Pool errors and scores across models per world."""
+    """Pool normalized errors and scores across models per world.
+
+    Errs are divided by per-world GT variance so values are normalized MSE.
+    """
+    world_vars = _world_vars()
     errs_per_world: dict[str, list[float]] = {w: [] for w in worlds}
     scores_per_world: dict[str, list[float]] = {w: [] for w in worlds}
     for (_model, world), values in by_trial.items():
         if world not in errs_per_world:
             continue
+        v = world_vars.get(world)
         for err, score in values:
             if isinstance(err, (int, float)) and math.isfinite(err) and err >= _GEOM_MIN:
-                errs_per_world[world].append(float(err))
+                ev = float(err)
+                if v is not None and v > 0:
+                    ev = ev / v
+                errs_per_world[world].append(ev)
             if isinstance(score, (int, float)) and math.isfinite(score):
                 scores_per_world[world].append(float(score))
     return errs_per_world, scores_per_world
@@ -1604,7 +1777,7 @@ def _make_per_world_passed_plot(
             if n == 0:
                 pcts.append(np.nan)
                 continue
-            passed = sum(1 for err, score in values if _trial_passes(err, score))
+            passed = sum(1 for err, score in values if _trial_passes(err, score, w))
             pcts.append(100.0 * passed / n)
         offset = (i - (n_models - 1) / 2) * width
         ax.bar(
@@ -1686,7 +1859,7 @@ def _make_expected_pass_rate_per_world_plot(
     ax.set_xticklabels(
         [_world_label(w) for w in ordered], rotation=20, ha="right", fontsize=14
     )
-    ax.set_ylabel(f"expected pass rate @k={k} ↑", fontsize=16)
+    ax.set_ylabel(f"Expected pass rate @k={k} ↑", fontsize=16)
     ax.tick_params(axis="y", labelsize=12)
     ax.set_ylim(0, 1.05)
 
@@ -1747,8 +1920,8 @@ def _make_world_difficulty_plot(by_trial, worlds, analysis_dir, title, plt) -> N
         ticks = list(range(lo_t, hi_t + 1))
         ax_err.set_yticks(ticks)
         ax_err.set_yticklabels([f"$10^{{{t}}}$" for t in ticks])
-    ax_err.set_ylabel("mean_pos_error (log scale) ↓")
-    ax_err.set_title("Per-world error (pooled across models)")
+    ax_err.set_ylabel("Normalized MSE (log scale) ↓")
+    ax_err.set_title("Per-world Normalized MSE (pooled across models)")
 
     if score_data:
         ax_score.violinplot(score_data, showmedians=True, showextrema=False)
@@ -1770,7 +1943,7 @@ def _make_world_difficulty_plot(by_trial, worlds, analysis_dir, title, plt) -> N
     plt.close(fig)
 
     if score_data:
-        fig2, ax2 = plt.subplots(figsize=(max(8.0, 0.9 * len(score_labels)), 6))
+        fig2, ax2 = plt.subplots(figsize=(max(8.0, 0.9 * len(score_labels)), 3.5))
         parts = ax2.violinplot(score_data, showmedians=True, showextrema=False)
         for body in parts["bodies"]:
             body.set_facecolor("black")
@@ -1780,12 +1953,13 @@ def _make_world_difficulty_plot(by_trial, worlds, analysis_dir, title, plt) -> N
                 parts[key].set_color("black")
         ax2.set_xticks(range(1, len(score_labels) + 1))
         ax2.set_xticklabels(
-            [_world_label(w) for w in score_labels],
-            rotation=20,
+            [_world_label(w).capitalize() for w in score_labels],
+            rotation=30,
             ha="right",
-            fontsize=16,
+            rotation_mode="anchor",
+            fontsize=12,
         )
-        ax2.set_ylabel("explanation score ↑", fontsize=18)
+        ax2.set_ylabel("Explanation score ↑", fontsize=16)
         ax2.tick_params(axis="y", labelsize=14)
         ax2.set_ylim(-0.05, 1.05)
         fig2.tight_layout()
@@ -1824,6 +1998,335 @@ def _fmt_geom_mean_bootstrap(values: list[float]) -> str:
     lo, hi = np.percentile(boot, [2.5, 97.5])
     m = float(np.exp(np.log(arr).mean()))
     return f"{m:.3f} [{lo:.3f}, {hi:.3f}]"
+
+
+_RADAR_TARGET_TAGS = ("gpt-5.5", "opus-4-7")
+
+
+def _radar_target_models(models) -> list[str]:
+    return [m for m in models if any(t in m for t in _RADAR_TARGET_TAGS)]
+
+
+def _radar_color_map(target_models) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for m in target_models:
+        if "opus-4-7" in m:
+            out[m] = "dimgray"
+        elif "gpt-5.5" in m:
+            out[m] = "darkorange"
+    return out
+
+
+def _draw_radar_panel(
+    ax, angles, ordered, target_models, rates, colors,
+    label_fontsize: int, ytick_fontsize: int, marker_size: float,
+) -> None:
+    angles_closed = angles + [angles[0]]
+    ax.set_theta_offset(math.pi / 2)
+    ax.set_theta_direction(-1)
+    ax.set_xticks(angles)
+    ax.set_xticklabels([_world_label(w) for w in ordered], fontsize=label_fontsize)
+    ax.set_ylim(0, 1.0)
+    ax.set_yticks([0.25, 0.5, 0.75, 1.0])
+    ax.set_yticklabels(["0.25", "0.5", "0.75", "1.0"], fontsize=ytick_fontsize)
+    ax.set_rlabel_position(180 / max(len(ordered), 1))
+    for m in target_models:
+        means = [rates.get((m, w), (0.0, 0.0))[0] for w in ordered]
+        means_closed = means + [means[0]]
+        color = colors[m]
+        ax.plot(
+            angles_closed, means_closed, color=color, linewidth=2.0,
+            marker="o", markersize=marker_size, label=_short(m),
+        )
+        ax.fill(angles_closed, means_closed, color=color, alpha=0.15)
+
+
+def _make_expected_passed_radar_plot(
+    by_seed, by_trial, models, worlds, analysis_dir, title, plt, k: int
+) -> None:
+    """Radar of per-world expected pass rate @k for gpt-5.5 vs opus-4-7."""
+    if not by_seed or not models or not worlds:
+        return
+    target_models = _radar_target_models(models)
+    if not target_models:
+        return
+    ordered = _world_order_by_score(by_trial, worlds)
+    if len(ordered) < 3:
+        return
+    rates = _expected_pass_rate_per_world_at_k(by_seed, target_models, ordered, k)
+    colors = _radar_color_map(target_models)
+    angles = np.linspace(0, 2 * math.pi, len(ordered), endpoint=False).tolist()
+
+    fig, ax = plt.subplots(figsize=(7, 7), subplot_kw={"projection": "polar"})
+    _draw_radar_panel(
+        ax, angles, ordered, target_models, rates, colors,
+        label_fontsize=12, ytick_fontsize=10, marker_size=6,
+    )
+    ax.set_title(f"Expected pass rate @k={k}", fontsize=18, pad=22)
+    ax.legend(
+        loc="lower center", bbox_to_anchor=(0.5, -0.12),
+        ncol=len(target_models), frameon=False, fontsize=13,
+    )
+    fig.tight_layout()
+    fig.savefig(
+        analysis_dir / f"radar_expected_passed_at_k{k}.png",
+        dpi=150, bbox_inches="tight",
+    )
+    fig.savefig(
+        analysis_dir / f"radar_expected_passed_at_k{k}.pdf",
+        bbox_inches="tight",
+    )
+    plt.close(fig)
+
+
+def _make_expected_passed_radar_combo(
+    by_seed, by_trial, models, worlds, analysis_dir, title, plt,
+    ks: tuple[int, ...] = (1, 3, 5),
+) -> None:
+    """1×len(ks) row of radars: per-world expected pass rate @k."""
+    if not by_seed or not models or not worlds:
+        return
+    from matplotlib.lines import Line2D
+
+    target_models = _radar_target_models(models)
+    if not target_models:
+        return
+    ordered = _world_order_by_score(by_trial, worlds)
+    if len(ordered) < 3:
+        return
+    colors = _radar_color_map(target_models)
+    angles = np.linspace(0, 2 * math.pi, len(ordered), endpoint=False).tolist()
+
+    fig, axes = plt.subplots(
+        1, len(ks), figsize=(7 * len(ks), 7),
+        subplot_kw={"projection": "polar"},
+    )
+    if len(ks) == 1:
+        axes = [axes]
+    for ax, k in zip(axes, ks):
+        rates = _expected_pass_rate_per_world_at_k(by_seed, target_models, ordered, k)
+        _draw_radar_panel(
+            ax, angles, ordered, target_models, rates, colors,
+            label_fontsize=11, ytick_fontsize=9, marker_size=5,
+        )
+        ax.set_title(f"@k={k}", fontsize=20, pad=22)
+
+    handles = [
+        Line2D(
+            [0], [0], color=colors[m], linewidth=2.0,
+            marker="o", markersize=8, label=_short(m),
+        )
+        for m in target_models
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center", bbox_to_anchor=(0.5, -0.02),
+        ncol=len(target_models), frameon=False, fontsize=18,
+    )
+    fig.tight_layout()
+    fig.savefig(
+        analysis_dir / "radar_expected_passed_combo.png",
+        dpi=150, bbox_inches="tight",
+    )
+    fig.savefig(
+        analysis_dir / "radar_expected_passed_combo.pdf",
+        bbox_inches="tight",
+    )
+    plt.close(fig)
+
+
+def _mean_score_per_world(
+    by_trial, target_models, ordered
+) -> dict[tuple[str, str], tuple[float, float]]:
+    out: dict[tuple[str, str], tuple[float, float]] = {}
+    for m in target_models:
+        for w in ordered:
+            scores = [
+                s for (_e, s) in by_trial.get((m, w), [])
+                if isinstance(s, (int, float)) and math.isfinite(s)
+            ]
+            out[(m, w)] = (float(np.mean(scores)), 0.0) if scores else (0.0, 0.0)
+    return out
+
+
+def _make_score_radar_plot(
+    by_trial, models, worlds, analysis_dir, title, plt
+) -> None:
+    """Radar of per-world mean evaluation score for gpt-5.5 vs opus-4-7."""
+    if not by_trial or not models or not worlds:
+        return
+    target_models = _radar_target_models(models)
+    if not target_models:
+        return
+    ordered = _world_order_by_score(by_trial, worlds)
+    if len(ordered) < 3:
+        return
+    rates = _mean_score_per_world(by_trial, target_models, ordered)
+    colors = _radar_color_map(target_models)
+    angles = np.linspace(0, 2 * math.pi, len(ordered), endpoint=False).tolist()
+
+    fig, ax = plt.subplots(figsize=(7, 7), subplot_kw={"projection": "polar"})
+    _draw_radar_panel(
+        ax, angles, ordered, target_models, rates, colors,
+        label_fontsize=12, ytick_fontsize=10, marker_size=6,
+    )
+    ax.set_title("Mean explanation score (avg. over seeds)", fontsize=18, pad=22)
+    ax.legend(
+        loc="lower center", bbox_to_anchor=(0.5, -0.12),
+        ncol=len(target_models), frameon=False, fontsize=13,
+    )
+    fig.tight_layout()
+    fig.savefig(
+        analysis_dir / "radar_mean_score.png",
+        dpi=150, bbox_inches="tight",
+    )
+    fig.savefig(
+        analysis_dir / "radar_mean_score.pdf",
+        bbox_inches="tight",
+    )
+    plt.close(fig)
+
+
+def _make_model_world_heatmap(
+    by_seed, by_trial, models, worlds, analysis_dir, title, plt, k: int = 3
+) -> None:
+    """Heatmap of mean explanation score per (model, world).
+
+    Rows = models (sort_key order). Columns = worlds (easy → hard by median
+    score). Cell value = mean of finite explanation scores across all trials
+    for that (model, world). The k argument is unused for the score variant
+    but kept for parity with other plot helpers.
+    """
+    if not by_trial or not models or not worlds:
+        return
+
+    _errs_per_world, scores_per_world = _world_score_pools(by_trial, worlds)
+    ordered_worlds = [
+        w for w in _world_order_by_score(by_trial, worlds) if scores_per_world[w]
+    ]
+    if not ordered_worlds:
+        return
+    ordered_models = sorted(models, key=_model_sort_key)
+    score_means = _mean_score_per_world(by_trial, ordered_models, ordered_worlds)
+
+    n_m = len(ordered_models)
+    n_w = len(ordered_worlds)
+    matrix = np.array([
+        [score_means.get((m, w), (np.nan, 0.0))[0] for w in ordered_worlds]
+        for m in ordered_models
+    ])
+
+    fig_w = max(8.0, 0.7 * n_w + 4)
+    fig_h = max(5.0, 0.45 * n_m + 2)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    cmap = "magma"
+    im = ax.imshow(matrix, cmap=cmap, vmin=0, vmax=1, aspect="auto")
+
+    def _cap(s: str) -> str:
+        return s[:1].upper() + s[1:] if s else s
+
+    ax.set_xticks(np.arange(n_w))
+    ax.set_xticklabels(
+        [_cap(_world_label(w)) for w in ordered_worlds],
+        rotation=30, ha="center", fontsize=14,
+    )
+    ax.set_yticks(np.arange(n_m))
+    ax.set_yticklabels(
+        [_cap(_short(m)) for m in ordered_models],
+        fontsize=14, ha="right", va="center",
+    )
+
+    for i in range(n_m):
+        for j in range(n_w):
+            v = matrix[i, j]
+            if not math.isfinite(v):
+                continue
+            text_color = "white" if v < 0.55 else "black"
+            ax.text(j, i, f"{v:.2f}", ha="center", va="center",
+                    color=text_color, fontsize=9)
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.025, pad=0.02)
+    cbar.set_label("Mean explanation score", fontsize=14)
+    cbar.ax.tick_params(labelsize=11)
+    ax.set_xlabel("Physics World", fontsize=16)
+
+    fig.tight_layout()
+    fig.savefig(
+        analysis_dir / "model_world_score_heatmap.png",
+        dpi=150, bbox_inches="tight",
+    )
+    fig.savefig(
+        analysis_dir / "model_world_score_heatmap.pdf",
+        bbox_inches="tight",
+    )
+    plt.close(fig)
+
+
+def _make_model_agreement_jaccard(
+    by_seed, models, worlds, analysis_dir, title, plt, k: int = 3
+) -> None:
+    """Pairwise Jaccard of world-pass sets across models.
+
+    A model is said to "pass" a world if its expected pass rate @k > 0
+    (i.e., at least one seed produced a passing trial). Output is a
+    symmetric N×N matrix where cell (i, j) = |Pi ∩ Pj| / |Pi ∪ Pj|.
+    """
+    if not by_seed or not models or not worlds:
+        return
+
+    ordered_models = sorted(models, key=_model_sort_key)
+    rates = _expected_pass_rate_per_world_at_k(
+        by_seed, ordered_models, worlds, k
+    )
+
+    pass_sets: dict[str, set[str]] = {
+        m: {w for w in worlds if rates.get((m, w), (0.0, 0.0))[0] > 0.0}
+        for m in ordered_models
+    }
+
+    n = len(ordered_models)
+    jacc = np.full((n, n), np.nan)
+    for i, mi in enumerate(ordered_models):
+        for j, mj in enumerate(ordered_models):
+            si = pass_sets[mi]
+            sj = pass_sets[mj]
+            union = si | sj
+            if union:
+                jacc[i, j] = len(si & sj) / len(union)
+
+    fig_size = max(6.0, 0.5 * n + 3)
+    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+    im = ax.imshow(jacc, cmap="magma", vmin=0, vmax=1, aspect="auto")
+
+    short_labels = [_short(m) for m in ordered_models]
+    ax.set_xticks(np.arange(n))
+    ax.set_xticklabels(short_labels, rotation=30, ha="right", fontsize=11)
+    ax.set_yticks(np.arange(n))
+    ax.set_yticklabels(short_labels, fontsize=11)
+
+    for i in range(n):
+        for j in range(n):
+            v = jacc[i, j]
+            if not math.isfinite(v):
+                continue
+            text_color = "white" if v < 0.55 else "black"
+            ax.text(j, i, f"{v:.2f}", ha="center", va="center",
+                    color=text_color, fontsize=9)
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.03)
+    cbar.set_label(f"Jaccard of passed worlds (@k={k}, any seed)", fontsize=13)
+    cbar.ax.tick_params(labelsize=11)
+
+    fig.tight_layout()
+    fig.savefig(
+        analysis_dir / f"model_agreement_jaccard_at_k{k}.png",
+        dpi=150, bbox_inches="tight",
+    )
+    fig.savefig(
+        analysis_dir / f"model_agreement_jaccard_at_k{k}.pdf",
+        bbox_inches="tight",
+    )
+    plt.close(fig)
 
 
 def main() -> int:

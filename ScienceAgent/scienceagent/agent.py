@@ -543,7 +543,7 @@ class DiscoveryAgent:
                 + "\n</mse_fit_output>"
             )
 
-        from scienceagent.mse_fitting import fit_law
+        from scienceagent.mse_fitting import fit_law, redact_world_leak
 
         try:
             result = fit_law(
@@ -554,7 +554,11 @@ class DiscoveryAgent:
             )
         except Exception as e:
             result = {
-                "error": f"unexpected_error: {e}",
+                "error": "unexpected_error: " + redact_world_leak(
+                    e,
+                    self.trajectory_logger.csv_path,
+                    self.trajectory_logger.world,
+                ),
                 "loss_before": None,
                 "loss_after": None,
                 "fitted_params": {},
