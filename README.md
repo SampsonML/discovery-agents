@@ -1,9 +1,9 @@
-# Discovery Agents
+# DiscoverPhysics
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](#license)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=for-the-badge&logo=python&logoColor=white)](https://github.com/psf/black)
 
 
-Training scientific discovery agents.
+Benchmarking routine for scientific discovery agents.
 
 LLM agents are placed in simulated physical worlds with unknown governing laws. Through iterative experimentation, observing particle trajectories, designing new experiments, and proposing equations, they must discover the hidden physics from scratch. Can they do this? Can we help them? All to be determined.
 
@@ -207,6 +207,3 @@ Set the corresponding environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
-## Author
-
-scientific discovery team
