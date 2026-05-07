@@ -1,8 +1,8 @@
 # DiscoverPhysics
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](#license)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=for-the-badge&logo=python&logoColor=white)](https://github.com/psf/black)
+## Benchmarking routine for scientific discovery agents.
 
-Benchmarking routine for scientific discovery agents.
 ![Agent pipeline diagram](imgs/agent_pipeline_diagram-1.png)
 
 *The discovery pipeline: a physics simulator generates a world and an initial dataset, the LLM agent runs up to $n$ experimentation rounds against the simulator, then submits a final law that is scored by trajectory MSE and an LLM-as-judge explanation grade.*
