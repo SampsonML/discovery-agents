@@ -227,6 +227,7 @@ analysis/
 The `@k=K` column counts worlds where at least one of the first K seeds achieved a trial-pass; the `E@k=K` column reports the expected percentage of worlds passed when K seed positions are sampled uniformly without replacement from the run's seed pool (Monte Carlo over 1000 draws). The pool size is read from `config.yml` automatically; values reported as `mean ± SE` are arithmetic, and `mean +up/−down` are geometric (asymmetric SE in raw units, derived from log-space bootstrap with 5000 resamples).
 
 ## Experimental Rounds
+We show an example of an agent experimenting with new particle positions, to discover the underlying laws of the oscillator system. By choosing wise probe positions the agents are able to aquire much more information about a system and ideally, help them discover their governing laws of motion.
 
 ![Oscillator narrative across rounds](imgs/oscillator_seed3_narrative-1.png)
 
