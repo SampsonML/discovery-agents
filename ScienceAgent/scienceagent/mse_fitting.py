@@ -175,7 +175,10 @@ def fit_law(
     try:
         training = _experiments_to_training(world, experiments)
     except Exception as e:
-        result["error"] = f"failed to reshape CSV into training samples: {e}"
+        result["error"] = (
+            "failed to reshape CSV into training samples: "
+            + redact_world_leak(e, csv_path, world)
+        )
         return result
     result["n_training"] = len(training)
     if not training:
@@ -185,7 +188,7 @@ def fit_law(
     try:
         discovered_law = _compile_law(law_source)
     except Exception as e:
-        result["error"] = f"compile_error: {e}"
+        result["error"] = "compile_error: " + redact_world_leak(e, csv_path, world)
         return result
 
     fit_fn = _compile_fit_parameters(law_source)
@@ -195,7 +198,9 @@ def fit_law(
             raw_spec = fit_fn()
             fit_spec_list = _validate_fit_spec(raw_spec)
         except Exception as e:
-            result["error"] = f"invalid_fit_parameters: {e}"
+            result["error"] = (
+                "invalid_fit_parameters: " + redact_world_leak(e, csv_path, world)
+            )
             return result
         result["declared_params"] = {
             name: {"init": init, "bounds": list(bounds)}
@@ -223,7 +228,9 @@ def fit_law(
     try:
         fitted = _fit_law_parameters(discovered_law, fit_spec_list, training, loss_fn)
     except Exception as e:
-        result["error"] = f"optimizer_failure: {e}"
+        result["error"] = (
+            "optimizer_failure: " + redact_world_leak(e, csv_path, world)
+        )
         result["fitted_params"] = init_kwargs
         result["loss_after"] = result["loss_before"]
         return result
