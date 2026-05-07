@@ -56,6 +56,13 @@ def main():
         help="Model for the critic agent (default: claude-haiku-4-5-20251001)",
     )
     parser.add_argument(
+        "--judge-model",
+        default="claude-opus-4-6",
+        help="Model used by the LLM-judge that scores the agent's prose "
+        "explanation against the world's optimal_explanation "
+        "(default: claude-opus-4-6).",
+    )
+    parser.add_argument(
         "--noise-std",
         type=float,
         default=0.0,
@@ -315,8 +322,8 @@ def main():
     print()
     # Judge default: a strong model from a different family/provider than
     # any of the benchmarked agent models, so no agent grades its own
-    # explanations.  Override via ExplanationJudge(judge_model=...).
-    judge_model = "claude-opus-4-6"
+    # explanations.  Override via --judge-model.
+    judge_model = args.judge_model
     judge = ExplanationJudge(judge_model=judge_model)
     explanation_result = judge.score(
         agent_explanation=agent.discovered_explanation,

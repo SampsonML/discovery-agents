@@ -10,6 +10,7 @@ setup(
         "openai>=1.50.0",
         "numpy",
         "jax",
+        "pyyaml",
     ],
     extras_require={
         "dev": ["pytest"],
