@@ -2,11 +2,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](#license)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=for-the-badge&logo=python&logoColor=white)](https://github.com/psf/black)
 
+Benchmarking routine for scientific discovery agents.
 ![Agent pipeline diagram](imgs/agent_pipeline_diagram-1.png)
 
 *The discovery pipeline: a physics simulator generates a world and an initial dataset, the LLM agent runs up to $n$ experimentation rounds against the simulator, then submits a final law that is scored by trajectory MSE and an LLM-as-judge explanation grade.*
 
-Benchmarking routine for scientific discovery agents.
 
 LLM agents are placed in simulated physical worlds with unknown governing laws. Through iterative experimentation, observing particle trajectories, designing new experiments, and proposing equations, they must discover the hidden physics from scratch. Can they do this? Can we help them? All to be determined.
 
@@ -130,7 +130,7 @@ python ScienceAgent/run_discovery.py --world gravity --model claude-sonnet-4-202
 
 The critic checks that the science agent follows its experimental protocol and that each experiment provides new information not seen in previous rounds. Feedback is injected into the conversation so the science agent can course-correct.
 
-### Example: Fractional Gravity on a Ring
+### Single world example: Fractional Gravity on a Ring
 
 Eleven particles are placed on a ring and interact via a fractional-Laplacian gravity field. The agent must discover the anomalous power-law force from noisy trajectories alone. Run with Opus 4.6 as the discovery agent and Sonnet 4.5 as the critic:
 
@@ -225,6 +225,12 @@ analysis/
 ```
 
 The `@k=K` column counts worlds where at least one of the first K seeds achieved a trial-pass; the `E@k=K` column reports the expected percentage of worlds passed when K seed positions are sampled uniformly without replacement from the run's seed pool (Monte Carlo over 1000 draws). The pool size is read from `config.yml` automatically; values reported as `mean ± SE` are arithmetic, and `mean +up/−down` are geometric (asymmetric SE in raw units, derived from log-space bootstrap with 5000 resamples).
+
+## Experimental Rounds
+
+![Oscillator narrative across rounds](imgs/oscillator_seed3_narrative-1.png)
+
+*A successful run on the `oscillator` world (seed 3). Left column: the agent's reasoning at each round. Right column: the experiments it designed, with ground-truth trajectories (solid), the agent's proposed law (dashed), and the noisy observations it actually saw (×). Round 1 is a quick parameter sweep over short timescales; Round 2 is the "aha" — extending the time window exposes a periodic flip in the radial velocity, ruling out a static $1/r^2$ law; Round 3 verifies a time-dependent radial law and submits. The final fit recovers $\omega \approx \pi/2$ and a mean position error of 0.0015 on held-out trajectories.*
 
 ## Supported LLM Providers
 
