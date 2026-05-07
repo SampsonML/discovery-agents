@@ -2,6 +2,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](#license)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg?style=for-the-badge&logo=python&logoColor=white)](https://github.com/psf/black)
 
+![Agent pipeline diagram](imgs/agent_pipeline_diagram-1.png)
+
+*The discovery pipeline: a physics simulator generates a world and an initial dataset, the LLM agent runs up to $n$ experimentation rounds against the simulator, then submits a final law that is scored by trajectory MSE and an LLM-as-judge explanation grade.*
 
 Benchmarking routine for scientific discovery agents.
 
@@ -59,6 +62,8 @@ the N-body trajectories.
 | **gravity** | $n=0$ | Laplacian | Logarithmic / $1/r$ attractive force in 2D | nbody · field |
 | **yukawa** | $n=0$ | Screened Poisson (Helmholtz) | Short-range exponentially suppressed force, screening length $\lambda$ | nbody · field |
 | **fractional** | $n=0$ | Fractional Laplacian $-(-\nabla^2)^\alpha$ | Anomalous power-law force, fit $\alpha$ | nbody · field |
+| **coulomb_easy** | $n=0$ | Attractive Coulomb $F = k\,p_1 p_2 / r^2$, 2 particles | Central inverse-square law from a fixed source | nbody only |
+| **extra_dimensions** | $n=0$ | Kaluza-Klein image-sum kernel, $R_c = 0.5$ | Crossover from 2D ($\propto 1/r$) at $r \gg R_c$ to 3D ($\propto 1/r^2$) at $r \lesssim R_c$ | nbody only |
 | **circle** | $n=0$ | Fractional Laplacian, 11 ring particles | Force law from a fixed ring geometry | nbody · field |
 | **three_species** | $n=0$ | Laplacian, 3 hidden classes + 5 neutral probes | Three species (one repulsive) + neutral probes | nbody · field |
 | **dark_matter** | $n=0$ | Laplacian, hidden 10-particle dark halo | Existence and strength of unobserved sources | nbody · field |
@@ -140,57 +145,86 @@ python ScienceAgent/run_discovery.py \
 
 The true fractional exponent is $\alpha = 1.5$. The agent discovers a force law with fractional exponent $\alpha = (1+\sqrt{5})/2$ (the golden ratio) and achieves a mean position error of ~0.064:
 
-![Trajectory comparison](imgs/circle_plot.png)
+![Trajectory comparison](imgs/circle_demo.png)
 
-The discovered law submitted by the agent:
-
-![Discovered law](imgs/circle_law.png)
 
 ### Batch Benchmarking with YAML Configs
 
-For sweeping the agent across many (model × world × seed) combinations, we include a YAML-driven runner that generates a reproducible bash script, executes it, and writes summary tables and plots automatically.
+For sweeping the agent across many (model × world × seed) combinations, we include a YAML-driven runner (`scripts/run_benchmark.py`) that generates a reproducible bash script, executes it, and writes summary tables automatically. A companion analysis script (`scripts/run_stats.py`) then produces plots and a per-model rollup from the resulting trial JSONs.
 
-Define a config such as `configs/example.yml`:
+A ready-to-go config is provided at `configs/bench.yml`:
 
 ```yaml
-name: my_run                              # output dir under results/yml_bench/
+name: production_run                       # output dir under results/yml_bench/
 models:
   - claude-opus-4-7
-  - together/Qwen/Qwen3-235B-A22B-Instruct-2507-tput
-critic: off                               # 'on' or 'off'
-critic_model: claude-haiku-4-5-20251001   # only used if critic: on
-max_rounds: 10
-noise_std: 0.0                            # optional, Gaussian σ on observed positions
-worlds: [gravity, yukawa, fractional]
-seeds: [0, 1, 2]
+critic: off                                # 'on' or 'off'
+critic_model: claude-sonnet-4-6            # only used if critic: on
+judge_model: claude-opus-4-6               # LLM-judge that scores prose explanations
+max_rounds: 16
+noise_std: 0.075                           # scalar or list (multi-σ sweep)
+random_experiments: off                    # 'on' replaces LLM-driven loop with random params
+no_mse: off                                # 'on' hides trajectory-MSE feedback (mutually exclusive with random_experiments)
+worlds:
+  - gravity
+  - yukawa
+  - fractional
+  - dark_matter
+  - three_species
+  - ether
+  - hubble
+  - coulomb_easy
+  - extra_dimensions
+  - circle
+  - oscillator
+seeds: [0, 1]
 ```
 
 Three usage modes:
 
 ```bash
-# generate run.sh, execute it, auto-aggregate (typical full sweep)
-python scripts/yml_benchmark.py configs/example.yml
+# generate run.sh, execute it, write summary tables (typical full sweep)
+python scripts/run_benchmark.py configs/bench.yml
 
 # generate run.sh only (inspect before executing)
-python scripts/yml_benchmark.py configs/example.yml --no-run
+python scripts/run_benchmark.py configs/bench.yml --no-run
 
 # re-aggregate an already-completed run directory
-python scripts/yml_benchmark.py --aggregate-only results/yml_bench/my_run
+python scripts/run_benchmark.py --aggregate-only results/yml_bench/production_run
 ```
 
 Each run produces:
 
 ```
 results/yml_bench/<name>/
-├── run.sh                                # generated bash, archived for reproducibility
-├── config.yml                            # archived input
-├── summary.txt                           # per-(model, world) mean [95% CI]
-├── summary.{png,pdf}                     # grouped bar chart, bootstrap CI error bars (MSE log-scale)
-├── runs.{png,pdf}                        # strip plot, one dot per seed
-└── <model>/<world>_seed<n>.{json,txt,stdout.log}
+├── run.sh                                 # generated bash, archived for reproducibility
+├── config.yml                             # archived input
+├── summary.txt                            # per-(model, world) expl_score and norm_MSE
+├── summary_per_model.txt                  # pooled-across-worlds rollup
+└── <model>/<world>[_noise<σ>]_seed<n>.{json,txt,stdout.log}
 ```
 
-Confidence intervals use 5000 bootstrap resamples (seeded for reproducibility) of the mean, reported as `mean [2.5%, 97.5%]`. Both the explanation-judge score (0–1, higher is better) and the trajectory mean position error (lower is better; pass threshold 0.1) are reported per cell.
+The `norm_MSE` columns are `mean_pos_error / Var(GT_world)` — MSE divided by the per-world ground-truth trajectory variance — so values are comparable across worlds with very different natural scales. A trial passes iff `norm_MSE < 0.1` AND explanation-judge score ≥ 0.75. Per-world variances are hardcoded in `scripts/run_benchmark.py`.
+
+To produce plots and a richer per-model rollup from a completed run:
+
+```bash
+python scripts/run_stats.py results/yml_bench/production_run
+```
+
+This writes into `results/yml_bench/production_run/analysis/`:
+
+```
+analysis/
+├── summary.txt                            # per-(model, world) flat table
+├── summary_per_model.{txt,png,pdf}        # pooled rollup with @k / E@k columns
+├── pareto_and_expected_passed_at_k.{png,pdf}
+├── per_world_passed.{png,pdf}
+├── world_difficulty_score.{png,pdf}
+└── model_world_score_heatmap.{png,pdf}
+```
+
+The `@k=K` column counts worlds where at least one of the first K seeds achieved a trial-pass; the `E@k=K` column reports the expected percentage of worlds passed when K seed positions are sampled uniformly without replacement from the run's seed pool (Monte Carlo over 1000 draws). The pool size is read from `config.yml` automatically; values reported as `mean ± SE` are arithmetic, and `mean +up/−down` are geometric (asymmetric SE in raw units, derived from log-space bootstrap with 5000 resamples).
 
 ## Supported LLM Providers
 
