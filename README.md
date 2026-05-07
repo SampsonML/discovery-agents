@@ -12,6 +12,10 @@ LLM agents are placed in simulated physical worlds with unknown governing laws. 
 
 The simulator generates diverse worlds by randomizing field equations, particle-field couplings, and symmetry structures, forcing agents to perform genuine scientific reasoning rather than pattern matching against known physics.
 
+![Benchmark results across frontier and open-weight models](imgs/money-1.png)
+
+*Benchmark results across the suite. **Left:** trajectory MSE vs. LLM-judge explanation score — the frontier reasoning models (Opus 4.7, GPT-5.5) cluster in the upper-left "good fit + good explanation" corner, while the rest trade one off against the other. **Middle:** expected worlds passed at $k$ seeds — Opus 4.7 and GPT-5.5 dominate, with most other models plateauing well below 2/11. **Right:** the same E@k=3 metric plotted against model release date, showing a clear capability trend over the past year.*
+
 ## How It Works
 
 Each world is governed by a generalized field equation:
